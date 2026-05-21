@@ -1,0 +1,56 @@
+---
+# Rol firewalld — Configuración del firewall con firewalld
+# firewalld usa el concepto de "zones" (zonas) en lugar de las reglas
+# simples de UFW. Cada zona define el nivel de confianza de una interfaz.
+# Es el estándar en RHEL/Fedora/CentOS.
+
+- name: Asegurar que firewalld esté instalado
+  ansible.builtin.dnf:
+    name: firewalld
+    state: present
+
+- name: Asegurar que firewalld esté activo y habilitado
+  ansible.builtin.systemd:
+    name: firewalld
+    state: started
+    enabled: true
+
+- name: Establecer zona default
+  ansible.builtin.command:
+    cmd: firewall-cmd --set-default-zone={{ firewalld_zone }}
+  changed_when: false
+
+- name: Abrir servicios necesarios
+  ansible.posix.firewalld:
+    service: "{{ item }}"
+    zone: "{{ firewalld_zone }}"
+    permanent: true
+    state: enabled
+    immediate: true
+  loop: "{{ firewalld_services }}"
+
+- name: Abrir puertos necesarios
+  ansible.posix.firewalld:
+    port: "{{ item }}"
+    zone: "{{ firewalld_zone }}"
+    permanent: true
+    state: enabled
+    immediate: true
+  loop: "{{ firewalld_ports }}"
+
+- name: Abrir puerto SSH custom
+  ansible.posix.firewalld:
+    port: "{{ firewalld_ssh_port }}/tcp"
+    zone: "{{ firewalld_zone }}"
+    permanent: true
+    state: enabled
+    immediate: true
+
+- name: Asegurar que el puerto 22 default_ssh siga abierto (para no perder acceso)
+  ansible.posix.firewalld:
+    service: ssh
+    zone: "{{ firewalld_zone }}"
+    permanent: true
+    state: enabled
+    immediate: true
+  when: firewalld_ssh_port != 22

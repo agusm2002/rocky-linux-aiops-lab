@@ -1,0 +1,24 @@
+---
+# Rol system-base — Actualización y configuración base del sistema
+# Instala paquetes esenciales, configura timezone y locale
+
+- name: Actualizar todos los paquetes del sistema
+  ansible.builtin.dnf:
+      name: "*"
+      state: latest
+      update_cache: true
+
+- name: Instalar paquetes base
+  ansible.builtin.dnf:
+      name: "{{ system_base_packages }}"
+      state: present
+
+- name: Configurar timezone
+  ansible.builtin.command:
+      cmd: timedatectl set-timezone {{ system_timezone }}
+  changed_when: false
+
+- name: Configurar locale
+  ansible.builtin.command:
+      cmd: localectl set-locale LANG={{ system_locale }}
+  changed_when: false

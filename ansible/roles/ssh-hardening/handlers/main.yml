@@ -1,0 +1,6 @@
+---
+# Handler del rol ssh-hardening
+- name: Restart sshd
+  ansible.builtin.systemd:
+    name: sshd
+    state: restarted

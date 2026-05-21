@@ -1,0 +1,11 @@
+---
+# Defaults del rol selinux
+# SELinux nunca se desactiva — enforcing es el modo requerido
+selinux_mode: enforcing
+
+# Booleanos de SELinux necesarios para k3s y servicios del stack
+selinux_booleans:
+  - name: container_manage_cgroup
+    state: true
+  - name: virt_use_nfs
+    state: true

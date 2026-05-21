@@ -1,0 +1,9 @@
+*.retry
+*.tfstate
+*.tfstate.backup
+.terraform/
+.tofu/
+.env
+secrets/
+*.key
+vault-token

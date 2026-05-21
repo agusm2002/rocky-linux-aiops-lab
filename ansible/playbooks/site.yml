@@ -1,0 +1,12 @@
+---
+# Playbook principal — Rocky Linux AIOps Lab
+# Ejecuta todos los roles de hardening en orden
+
+- name: Hardening base del sistema Rocky Linux 9
+  hosts: rocky-aiops
+  become: true
+  roles:
+    - system-base
+    - firewalld
+    - selinux
+    - ssh-hardening

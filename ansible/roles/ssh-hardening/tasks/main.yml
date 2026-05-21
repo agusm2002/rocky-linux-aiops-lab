@@ -1,0 +1,62 @@
+---
+# Rol ssh-hardening — Endurecimiento del servicio SSH
+# Cambia el puerto, deshabilita root login y controla autenticación por password.
+#
+# IMPORTANTE:
+# - PasswordAuthentication se controla con la variable ssh_password_auth.
+#   Por defecto es true para no perder acceso. Cambiar a false después de
+#   configurar la clave SSH en ~/.ssh/authorized_keys del usuario.
+# - El puerto SSH se mantiene en 22 por defecto. Cambiar ssh_port a un
+#   puerto custom (ej: 2222) solo cuando se verifique que la key funciona.
+
+- name: Instalar el servicio SSH
+  ansible.builtin.dnf:
+      name: openssh-server
+      state: present
+
+- name: Deshabilitar login root
+  ansible.builtin.lineinfile:
+      path: /etc/ssh/sshd_config
+      regexp: "^#?PermitRootLogin"
+      line: "PermitRootLogin no"
+      validate: "sshd -t -f %s"
+
+- name: Configurar autenticación por password
+  ansible.builtin.lineinfile:
+      path: /etc/ssh/sshd_config
+      regexp: "^#?PasswordAuthentication"
+      line: "PasswordAuthentication {{ 'yes' if ssh_password_auth else 'no' }}"
+      validate: "sshd -t -f %s"
+
+- name: Configurar MaxAuthTries
+  ansible.builtin.lineinfile:
+      path: /etc/ssh/sshd_config
+      regexp: "^#?MaxAuthTries"
+      line: "MaxAuthTries {{ ssh_max_auth_tries }}"
+      validate: "sshd -t -f %s"
+
+- name: Configurar LoginGraceTime
+  ansible.builtin.lineinfile:
+      path: /etc/ssh/sshd_config
+      regexp: "^#?LoginGraceTime"
+      line: "LoginGraceTime {{ ssh_login_grace_time }}"
+      validate: "sshd -t -f %s"
+
+- name: Cambiar puerto SSH (solo si es diferente de 22)
+  ansible.builtin.lineinfile:
+      path: /etc/ssh/sshd_config
+      regexp: "^#?Port "
+      line: "Port {{ ssh_port }}"
+      validate: "sshd -t -f %s"
+  when: ssh_port != 22
+  notify: Restart sshd
+
+- name: Configurar SELinux para el nuevo puerto SSH
+  ansible.builtin.command:
+      cmd: semanage port -a -t ssh_port_t -p tcp {{ ssh_port }}
+  when: ssh_port != 22
+  # semanage falla si el puerto ya existe, lo cual es aceptable
+  failed_when: false
+
+- name: Restart sshd si se cambió el puerto
+  ansible.builtin.meta: flush_handlers

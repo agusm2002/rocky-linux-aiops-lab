@@ -1,0 +1,38 @@
+---
+# Rol selinux — Verificar y configurar SELinux en modo enforcing
+# SELinux (Security-Enhanced Linux) es mandatory access control (MAC).
+# A diferencia de Ubuntu donde viene desactivado por defecto, en RHEL/Rocky
+# viene habilitado en modo enforcing. Nunca se desactiva — se gestionan
+# las políticas y booleanos según lo que cada servicio necesite.
+#
+# Contextos SELinux relevantes para este lab:
+# - container_file_t: contexto para archivos que los contenedores necesitan leer/escribir
+# - container_runtime_exec_t: binarios del runtime de contenedores
+# - Los booleanos permiten ajustar políticas sin escribir módulos completos
+
+- name: Instalar policycoreutils-python-utils (semanage, getsebool, etc.)
+  ansible.builtin.dnf:
+    name: policycoreutils-python-utils
+    state: present
+
+- name: Verificar que SELinux esté en modo enforcing
+  ansible.builtin.selinux:
+    policy: targeted
+    state: "{{ selinux_mode }}"
+
+- name: Configurar booleanos de SELinux para k3s y servicios
+  ansible.posix.seboolean:
+    name: "{{ item.name }}"
+    state: "{{ item.state }}"
+    persistent: true
+  loop: "{{ selinux_booleans }}"
+
+- name: Mostrar estado de SELinux
+  ansible.builtin.command:
+    cmd: sestatus
+  changed_when: false
+  register: selinux_status
+
+- name: Debug — estado de SELinux
+  ansible.builtin.debug:
+    var: selinux_status.stdout_lines
