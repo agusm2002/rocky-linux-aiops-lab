@@ -1,13 +1,14 @@
 ---
 # Defaults del rol system-base
 system_base_packages:
-  - vim
-  - curl
-  - wget
-  - git
-  - net-tools
-  - htop
-  - bash-completion
+    - vim
+    - curl
+    - wget
+    - git
+    - net-tools
+    - htop
+    - bash-completion
+    - glibc-langpack-es # Locale es_AR.utf8
 
 system_timezone: America/Argentina/Buenos_Aires
-system_locale: es_AR.UTF-8
+system_locale: es_AR.utf8
