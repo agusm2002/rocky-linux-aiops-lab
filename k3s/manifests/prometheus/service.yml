@@ -1,0 +1,31 @@
+# Service de Prometheus — expone el servidor de métricas dentro del cluster.
+#
+# Usa ClusterIP (sin NodePort ni LoadBalancer) porque:
+# - En el stack AIOps, Grafana se conecta a Prometheus internamente por DNS
+#   (http://prometheus.aiops:9090), no necesita acceso externo directo.
+# - Para acceso desde el navegador en el host, se usa port-forward o el
+#   Ingress/Traefik que ya trae k3s.
+#
+# El selector coincide con los labels del Deployment para que Kubernetes
+# enlace automáticamente el Service a los pods correctos.
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: aiops
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/part-of: aiops-lab
+spec:
+  # ClusterIP: el service solo es accesible dentro del cluster.
+  # No asigna puerto en el nodo — suficiente para comunicación interna.
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 9090
+      targetPort: 9090
+      protocol: TCP
+  # Debe coincidir con los labels del template del Deployment.
+  selector:
+    app.kubernetes.io/name: prometheus

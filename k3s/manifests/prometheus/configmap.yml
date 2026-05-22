@@ -1,0 +1,160 @@
+# ConfigMap de Prometheus — contiene la configuración de scrape y las reglas de alerta.
+# Prometheus lee estos archivos al iniciar (arg --config.file) y los usa para:
+#   1. Descubrir qué targets monitorear (scrape_configs)
+#   2. Definir condiciones que disparan alertas (alert_rules.yml)
+# Los ConfigMaps se montan como volumen de solo lectura; para recargar la config
+# sin reiniciar el pod, usamos --web.enable-lifecycle y enviamos SIGHUP o POST a /-/reload.
+#
+# Arquitectura: Prometheus scraping métricas → evalúa reglas → dispara alertas
+# hacia Alertmanager → Alertmanager envía webhook a n8n → n8n orquesta respuesta automática.
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+    name: prometheus-config
+    namespace: aiops
+    labels:
+        app.kubernetes.io/name: prometheus
+        app.kubernetes.io/part-of: aiops-lab
+data:
+    # -----------------------------------------------------------------------
+    # prometheus.yml — configuración principal de Prometheus
+    # -----------------------------------------------------------------------
+    prometheus.yml: |
+        # Intervalo global: cada cuánto Prometheus consulta los targets.
+        # 15s es un buen balance entre granularidad y carga en un entorno de lab.
+        global:
+          scrape_interval: 15s
+          evaluation_interval: 15s
+
+        # Alerting: le dice a Prometheus dónde enviar las alertas que disparan las reglas.
+        alerting:
+          alertmanagers:
+            - static_configs:
+                - targets:
+                    - alertmanager:9093
+
+        # Archivo de reglas de alerta — se carga desde el mismo ConfigMap (volumen compartido).
+        rule_files:
+          - alert_rules.yml
+
+        scrape_configs:
+          # -----------------------------------------------------------------
+          # 1. Prometheus se monitorea a sí mismo (self-scrape).
+          #    Útil para verificar que el servidor está corriendo y para métricas
+          #    internas como el número de series temporales activas.
+          # -----------------------------------------------------------------
+          - job_name: "prometheus"
+            static_configs:
+              - targets:
+                  - "localhost:9090"
+
+          # -----------------------------------------------------------------
+          # 2. Node Exporter — métricas del host (CPU, memoria, disco, red).
+          #    Corre como DaemonSet con hostNetwork y hostPID para ver las métricas
+          #    reales del nodo, no las del contenedor aislado.
+          #    El Service node-exporter expone 9100 en el namespace aiops.
+          # -----------------------------------------------------------------
+          - job_name: "node-exporter"
+            static_configs:
+              - targets:
+                  - "node-exporter.aiops:9100"
+
+          # -----------------------------------------------------------------
+          # 3. k3s kubelet metrics — métricas de cAdvisor del kubelet.
+          #    k3s expone métricas de contenedores en /metrics/cadvisor del kubelet.
+          #    Usamos kubernetes_sd_configs con role "node" para descubrir los nodos
+          #    automáticamente en lugar de hardcodear IPs.
+          #    Requiere autenticación con ServiceAccount token y TLS con
+          #    insecure_skip_verify porque k3s usa certificados auto-firmados.
+          # -----------------------------------------------------------------
+          - job_name: "k3s-kubelet"
+            scheme: https
+            metrics_path: /metrics/cadvisor
+            kubernetes_sd_configs:
+              - role: node
+            tls_config:
+              # k3s genera certificados auto-firmados; sin esto Prometheus rechaza la conexión.
+              insecure_skip_verify: true
+            authorization:
+              # El token del ServiceAccount montado automáticamente en el pod.
+              # Permite a Prometheus autenticarse contra el kubelet.
+              credentials_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+
+          # -----------------------------------------------------------------
+          # 4. n8n — expone métricas de workflows (ejecuciones, fallos, latencia).
+          #    El endpoint /metrics debe estar habilitado en el deployment de n8n
+          #    con la variable de entorno N8N_METRICS=true.
+          # -----------------------------------------------------------------
+          - job_name: "n8n"
+            static_configs:
+              - targets:
+                  - "n8n.aiops:5678"
+            metrics_path: /metrics
+
+          # -----------------------------------------------------------------
+          # 5. Alertmanager — métricas internas de Alertmanager (alertas recibidas,
+          #    notificaciones enviadas, errores de webhook). Permite monitorear que
+          #    el propio pipeline de alertas funciona correctamente.
+          # -----------------------------------------------------------------
+          - job_name: "alertmanager"
+            static_configs:
+              - targets:
+                  - "alertmanager:9093"
+
+    # -----------------------------------------------------------------------
+    # alert_rules.yml — reglas de alerta evaluadas por Prometheus cada 15s.
+    # Cuando una expresión PromQL evalúa a true, Prometheus crea una alerta
+    # y la envía a Alertmanager para que aplique routing y notificación.
+    # -----------------------------------------------------------------------
+    alert_rules.yml: |
+        groups:
+          # -----------------------------------------------------------------
+          # Grupo: recursos del host
+          # Contiene reglas que monitorean CPU y disco del nodo Rocky Linux.
+          # -----------------------------------------------------------------
+          - name: host_resources
+            rules:
+              # Uso de CPU por encima del 80% durante 5 minutos continuos.
+              # Sección importante: for=5m evita falsas alertas por picos momentáneos
+              # (ej. un cron job que sube la CPU por 30 segundos no dispara la alerta).
+              # severity: warning — no es crítico pero merece atención.
+              - alert: HighCPU
+                expr: 100 - (avg by(instance)(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+                for: 5m
+                labels:
+                  severity: warning
+                annotations:
+                  summary: "CPU alta en {{ $labels.instance }}"
+                  description: "El uso de CPU es mayor al 80% hace más de 5 minutos (valor actual: {{ $value }}%)."
+
+              # Espacio en disco disponible por debajo del 20%.
+              # monitora la partición raíz (/) que es donde k3s guarda datos de contenedores.
+              # severity: warning — en un disco lleno los pods pueden fallar al escribir.
+              - alert: DiskSpaceLow
+                expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100 < 20
+                for: 5m
+                labels:
+                  severity: warning
+                annotations:
+                  summary: "Poco espacio en disco en {{ $labels.instance }}"
+                  description: "Queda menos del 20% de espacio en / (valor actual: {{ $value }}%)."
+
+          # -----------------------------------------------------------------
+          # Grupo: disponibilidad de servicios
+          # Detecta cuando un servicio deja de responder al scraping.
+          # up==0 significa que el último scrape falló (el target no respondió).
+          # -----------------------------------------------------------------
+          - name: service_availability
+            rules:
+              # Un servicio (exporter, app) no responde al scrape durante 2 minutos.
+              # severity: critical — si un servicio cae, perdemos visibilidad y
+              # la cadena de observabilidad se rompe. n8n debe reaccionar rápido.
+              - alert: ServiceDown
+                expr: up == 0
+                for: 2m
+                labels:
+                  severity: critical
+                annotations:
+                  summary: "Servicio {{ $labels.job }} caído en {{ $labels.instance }}"
+                  description: "El target {{ $labels.job }}/{{ $labels.instance }} no responde al scrape hace 2 minutos."

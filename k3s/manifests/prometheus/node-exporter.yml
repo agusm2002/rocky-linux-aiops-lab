@@ -1,0 +1,106 @@
+# DaemonSet de Node Exporter — recolecta métricas del host (CPU, memoria, disco, red).
+# Se despliega como DaemonSet para garantizar que cada nodo del cluster tiene una
+# instancia corriendo. En single-node (k3s) habrá un solo pod.
+#
+# Node Exporter expone métricas en /metrics en el puerto 9100. Prometheus scrapea
+# este endpoint para obtener las series node_cpu_seconds_total,
+# node_memory_MemAvailable_bytes, node_filesystem_avail_bytes, etc. que usan
+# las alertas definidas en alert_rules.yml.
+#
+# Host network y host PID son necesarios para que el exporter pueda ver las
+# métricas reales del host y no las del contenedor aislado.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: node-exporter
+  namespace: aiops
+  labels:
+    app.kubernetes.io/name: node-exporter
+    app.kubernetes.io/part-of: aiops-lab
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: node-exporter
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: node-exporter
+        app.kubernetes.io/part-of: aiops-lab
+    spec:
+      # Toleration para tolerar manchas de control-plane — permite que el pod
+      # corra en el nodo master, que en single-node es el único nodo.
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/master
+          operator: Exists
+          effect: NoSchedule
+      # hostNetwork: true permite que el exporter vea las interfaces de red del host
+      # y reporte métricas de red reales (no las del contenedor).
+      # hostPID: true permite ver los procesos del host para métricas de processo.
+      hostNetwork: true
+      hostPID: true
+      containers:
+        - name: node-exporter
+          image: prom/node-exporter:v1.7.0
+          args:
+            - --path.procfs=/host/proc
+            - --path.sysfs=/host/sys
+            - --path.rootfs=/host/root
+            - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host)($$|/)
+          ports:
+            - name: metrics
+              containerPort: 9100
+              # hostPort: al usar hostNetwork, el puerto 9100 del pod se expone
+              # directamente en el puerto 9100 del host.
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "128Mi"
+              cpu: "100m"
+          volumeMounts:
+            - name: proc
+              mountPath: /host/proc
+              readOnly: true
+            - name: sys
+              mountPath: /host/sys
+              readOnly: true
+            - name: root
+              mountPath: /host/root
+              readOnly: true
+      volumes:
+        # Montar /proc, /sys y / del host como solo lectura para que el exporter
+        # pueda leer las métricas reales del sistema sin permisos de escritura.
+        - name: proc
+          hostPath:
+            path: /proc
+        - name: sys
+          hostPath:
+            path: /sys
+        - name: root
+          hostPath:
+            path: /
+---
+# Service de Node Exporter — permite que Prometheus lo descubra dentro del cluster.
+# Al usar hostNetwork, el pod es accesible directamente por la IP del nodo,
+# pero este Service ClusterIP es necesario para que Prometheus lo scrapee
+# usando el service discovery interno.
+apiVersion: v1
+kind: Service
+metadata:
+  name: node-exporter
+  namespace: aiops
+  labels:
+    app.kubernetes.io/name: node-exporter
+    app.kubernetes.io/part-of: aiops-lab
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: node-exporter
+  ports:
+    - name: metrics
+      port: 9100
+      targetPort: 9100

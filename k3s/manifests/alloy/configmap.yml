@@ -1,0 +1,64 @@
+# ConfigMap para Grafana Alloy — almacena la configuración en formato River (.alloy).
+# A diferencia de Promtail que usa YAML, Alloy utiliza su propio lenguaje declarativo
+# llamado River. Este pipeline descubre pods del namespace aiops, recopila sus logs
+# y los envía a Loki.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+    name: alloy-config
+    namespace: aiops
+data:
+    alloy.alloy: |
+        // Alloy es el sucesor oficial de Promtail — recolecta logs de todos los pods
+        // del cluster y los envía a Loki. Se despliega como DaemonSet para garantizar
+        // que cada nodo tiene un pod recolector.
+
+        // Descubrimiento de pods — encuentra todos los pods del namespace aiops
+        // y extrae sus labels como metadatos para los logs.
+        discovery.kubernetes "aiops_pods" {
+          role = "pod"
+          namespaces {
+            names = ["aiops"]
+          }
+        }
+
+        // Escritura a Loki — endpoint interno del cluster usando DNS interno.
+        // El FQDN completo (loki.aiops.svc.cluster.local) es más explícito
+        // que solo "loki:3100" y evita ambigüedad entre namespaces.
+        loki.write "loki" {
+          endpoint {
+            url = "http://loki.aiops.svc.cluster.local:3100/loki/api/v1/push"
+          }
+        }
+
+        // Relabeling — agrega labels útiles a los targets descubiertos
+        // antes de enviarlos al componente de recolección de logs.
+        discovery.relabel "aiops_pods_logs" {
+          targets = discovery.kubernetes.aiops_pods.targets
+
+          // Etiqueta del nombre del pod — identifica qué pod generó el log.
+          rule {
+            source_labels = ["__meta_kubernetes_pod_name"]
+            target_label  = "pod"
+          }
+          // Etiqueta del namespace — en este caso siempre es "aiops".
+          rule {
+            source_labels = ["__meta_kubernetes_namespace"]
+            target_label  = "namespace"
+          }
+          // Etiqueta del container — útil para distinguir logs de contenedores
+          // diferentes dentro del mismo pod (ej. sidecar containers).
+          rule {
+            source_labels = ["__meta_kubernetes_pod_container_name"]
+            target_label  = "container"
+          }
+        }
+
+        // Recolección de logs de pods — lee los logs de cada pod descubierto
+        // y los reenvía al componente de escritura.
+        // targets: los pods descubiertos y relabeleados.
+        // forward_to: el componente loki.write que envía los logs a Loki.
+        loki.source.kubernetes "pod_logs" {
+          targets    = discovery.relabel.aiops_pods_logs.output
+          forward_to = [loki.write.loki.receiver]
+        }

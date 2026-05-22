@@ -1,0 +1,21 @@
+# Service de Grafana Alloy — expone la UI y métricas internas de Alloy
+# dentro del cluster. Útil para debugging y monitoring del pipeline de logs.
+# Tipo ClusterIP: solo accesible internamente, no exponemos al exterior.
+apiVersion: v1
+kind: Service
+metadata:
+  name: alloy
+  namespace: aiops
+  labels:
+    app: alloy
+spec:
+  type: ClusterIP
+  selector:
+    app: alloy
+  ports:
+    # 12345: puerto donde Alloy sirve su UI web y endpoints de métricas.
+    # Permite verificar el estado del pipeline y las conexiones a Loki.
+    - name: http
+      port: 12345
+      targetPort: 12345
+      protocol: TCP

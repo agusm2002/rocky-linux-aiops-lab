@@ -1,0 +1,25 @@
+# ============================================================
+# Service de Grafana
+# ============================================================
+# Expone Grafana dentro del clúster con un ClusterIP.  Otros
+# componentes (como n8n o Ingress) pueden acceder a Grafana
+# mediante http://grafana.aiops:3000.  No se usa NodePort ni
+# LoadBalancer porque el acceso externo se maneja con Ingress.
+# ============================================================
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana                     # Nombre DNS dentro del clúster: grafana.aiops.svc.cluster.local
+  namespace: aiops                  # Namespace del laboratorio AIOps
+  labels:
+    app: grafana
+spec:
+  type: ClusterIP                   # Solo accesible dentro del clúster; Ingress se encarga del acceso externo
+  ports:
+    - port: 3000                    # Puerto del Service
+      targetPort: http              # Apunta al puerto nombrado del contenedor
+      protocol: TCP
+      name: http                    # Nombre del puerto — útil para ServiceMonitors y referencias
+  selector:
+    app: grafana                    # Selecciona pods con esta etiqueta (debe coincidir con el Deployment)

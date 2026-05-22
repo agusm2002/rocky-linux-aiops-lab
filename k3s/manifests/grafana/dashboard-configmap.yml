@@ -1,0 +1,199 @@
+# ============================================================
+# ConfigMap: grafana-dashboards
+# ============================================================
+# Contiene el dashboard de resumen del clúster (cluster-overview)
+# como un archivo JSON embebido.  Pre-cargar dashboards elimina
+# la configuración manual y demuestra prácticas GitOps: el
+# estado deseado del dashboard vive en el repositorio y se
+# aplica automáticamente al desplegar.  Cada vez que se
+# recrea el pod, Grafana carga la última versión definida aquí.
+# ============================================================
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+    name: grafana-dashboards
+    namespace: aiops
+    labels:
+        app: grafana
+data:
+    # La key del ConfigMap debe coincidir con el nombre de archivo que Grafana espera.
+    # El dashboard provider en grafana-dashboards-provider escanea /var/lib/grafana/dashboards,
+    # y este ConfigMap se monta en ese path. La key "cluster-overview.json" se convierte
+    # en el archivo /var/lib/grafana/dashboards/cluster-overview.json dentro del pod.
+    cluster-overview.json: |
+        {
+          "annotations": {
+            "list": []
+          },
+          "editable": true,
+          "fiscalYearStartMonth": 0,
+          "graphTooltip": 1,
+          "id": null,
+          "links": [],
+          "liveNow": false,
+          "panels": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "fieldConfig": {
+                "defaults": {
+                  "unit": "percent",
+                  "decimals": 1
+                },
+                "overrides": []
+              },
+              "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 0
+              },
+              "id": 1,
+              "title": "CPU Usage (%)",
+              "type": "timeseries",
+              "description": "Porcentaje de CPU utilizado por modo, excluyendo idle. Muestra la carga real del nodo.",
+              "targets": [
+                {
+                  "expr": "rate(node_cpu_seconds_total{mode!=\"idle\"}[5m]) * 100",
+                  "legendFormat": "{{instance}} — {{mode}}",
+                  "refId": "A"
+                }
+              ]
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "fieldConfig": {
+                "defaults": {
+                  "unit": "bytes",
+                  "decimals": 1
+                },
+                "overrides": []
+              },
+              "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 0
+              },
+              "id": 2,
+              "title": "Memory Available",
+              "type": "timeseries",
+              "description": "Memoria disponible en el nodo. Un valor bajo indica presión de memoria.",
+              "targets": [
+                {
+                  "expr": "node_memory_MemAvailable_bytes",
+                  "legendFormat": "{{instance}}",
+                  "refId": "A"
+                }
+              ]
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "fieldConfig": {
+                "defaults": {
+                  "unit": "bytes",
+                  "decimals": 1
+                },
+                "overrides": []
+              },
+              "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 8
+              },
+              "id": 3,
+              "title": "Disk Space Available (/)",
+              "type": "timeseries",
+              "description": "Espacio disponible en el filesystem montado en /. Alertar si baja del 20%.",
+              "targets": [
+                {
+                  "expr": "node_filesystem_avail_bytes{mountpoint=\"/\"}",
+                  "legendFormat": "{{instance}}",
+                  "refId": "A"
+                }
+              ]
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "fieldConfig": {
+                "defaults": {
+                  "mappings": [
+                    {
+                      "type": "value",
+                      "options": {
+                        "0": { "text": "DOWN", "color": "red" },
+                        "1": { "text": "UP", "color": "green" }
+                      }
+                    }
+                  ],
+                  "thresholds": {
+                    "mode": "absolute",
+                    "steps": [
+                      { "value": null, "color": "red" },
+                      { "value": 1, "color": "green" }
+                    ]
+                  },
+                  "decimals": 0
+                },
+                "overrides": []
+              },
+              "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 8
+              },
+              "id": 4,
+              "title": "Service Status (up)",
+              "type": "stat",
+              "description": "Estado de cada target scrapeado por Prometheus. 1 = activo, 0 = caído. Útil para detectar servicios que dejaron de responder.",
+              "targets": [
+                {
+                  "expr": "up",
+                  "legendFormat": "{{job}}",
+                  "refId": "A"
+                }
+              ]
+            }
+          ],
+          "refresh": "30s",
+          "schemaVersion": 39,
+          "style": "dark",
+          "tags": ["aiops", "cluster-overview"],
+          "templating": {
+            "list": [
+              {
+                "current": {},
+                "hide": 0,
+                "includeAll": false,
+                "label": "Prometheus",
+                "name": "DS_PROMETHEUS",
+                "options": [],
+                "query": "prometheus",
+                "refresh": 1,
+                "regex": "",
+                "type": "datasource"
+              }
+            ]
+          },
+          "time": {
+            "from": "now-1h",
+            "to": "now"
+          },
+          "title": "Cluster Overview",
+          "uid": "cluster-overview",
+          "version": 1
+        }

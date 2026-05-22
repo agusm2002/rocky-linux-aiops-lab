@@ -1,0 +1,75 @@
+# ============================================================
+# ConfigMaps de Grafana — provisionamiento de datasources y
+# proveedor de dashboards
+# ============================================================
+# Este archivo define dos ConfigMaps que pre-provisionan Grafana
+# en el arranque, eliminando la necesidad de configuración manual
+# tras cada despliegue.
+# ============================================================
+
+---
+# -----------------------------------------------------------
+# ConfigMap: grafana-datasources
+# -----------------------------------------------------------
+# Pre-provisiona las fuentes de datos (Prometheus y Loki) para
+# que todo usuario que ingrese a Grafana tenga métricas y logs
+# disponibles inmediatamente, sin necesidad de configurar nada
+# a mano.  Esto es fundamental en un laboratorio AIOps donde el
+# objetivo es experimentar con observabilidad, no luchar contra
+# la configuración inicial de Grafana.
+# -----------------------------------------------------------
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources          # Nombre del ConfigMap
+  namespace: aiops                   # Namespace compartido por todos los servicios
+  labels:
+    app: grafana                     # Etiqueta para selector del Deployment
+data:
+  datasources.yml: |                # Clave que Grafana espera en provisioning/datasources/
+    apiVersion: 1
+    datasources:
+      - name: Prometheus            # Fuente de métricas — consulta PromQL
+        type: prometheus
+        access: proxy               # Grafana actúa como proxy; evita exposition del backend al navegador
+        url: http://prometheus.aiops:9090  # URL interna del servicio Prometheus en el namespace aiops
+        isDefault: true             # Fuente de datos predeterminada para paneles nuevos
+        editable: true              # Permite a los usuarios modificar la configuración desde la UI
+      - name: Loki                  # Fuente de logs — consulta LogQL
+        type: loki
+        access: proxy
+        url: http://loki.aiops:3100  # URL interna del servicio Loki en el namespace aiops
+        editable: true
+
+---
+# -----------------------------------------------------------
+# ConfigMap: grafana-dashboards-provider
+# -----------------------------------------------------------
+# Configura el proveedor de dashboards de Grafana para que
+# cargue automáticamente cualquier dashboard JSON que encuentre
+# en el directorio /var/lib/grafana/dashboards del pod.  Esto
+# permite que los dashboards definidos como ConfigMaps se
+# descubran y activen sin intervención manual, facilitando el
+# patrón GitOps: el dashboard vive en el repositorio y Grafana
+# lo carga al iniciar.
+# -----------------------------------------------------------
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards-provider  # Nombre del ConfigMap
+  namespace: aiops
+  labels:
+    app: grafana
+data:
+  dashboards.yml: |                 # Clave que Grafana espera en provisioning/dashboards/
+    apiVersion: 1
+    providers:
+      - name: 'default'              # Nombre del proveedor de dashboards
+        orgId: 1                     # Organización predeterminada de Grafana
+        folder: ''                   # Carpeta raíz — los dashboards aparecen en la carpeta General
+        type: file                   # Carga dashboards desde archivos en el sistema de archivos
+        disableDeletion: false       # Permite eliminar dashboards desde la UI
+        updateIntervalSeconds: 30    # Cada 30s Grafana revisa si hay dashboards nuevos o modificados
+        options:
+          path: /var/lib/grafana/dashboards  # Ruta donde se montan los dashboards vía ConfigMap
+          foldersFromFilesStructure: false    # No usa estructura de carpetas del filesystem; todo plano

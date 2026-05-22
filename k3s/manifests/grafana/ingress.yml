@@ -1,0 +1,27 @@
+# Ingress de Grafana — expone la UI fuera del cluster para acceso desde la Mac.
+# k3s incluye Traefik como ingress controller por defecto, así que no se necesita
+# una annotation de ingress class: Traefik procesa cualquier Ingress del tipo
+# networking.k8s.io/v1 automáticamente.
+#
+# Para acceder desde la Mac: agregar al /etc/hosts de la Mac la línea:
+#   <IP_DE_LA_VM>  grafana.local
+# Luego navegar a http://grafana.local en el navegador.
+# Credenciales: admin / admin (la contraseña se cambiará con Vault en la Fase 3).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+    name: grafana
+    namespace: aiops
+spec:
+    ingressClassName: traefik
+    rules:
+        - host: grafana.local
+          http:
+              paths:
+                  - path: /
+                    pathType: Prefix
+                    backend:
+                        service:
+                            name: grafana
+                            port:
+                                number: 3000

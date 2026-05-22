@@ -24,9 +24,11 @@
 - [x] **Fase 1**: Base del Sistema — Rocky Linux + Hardening RHEL
 - [x] **Fase 2**: Infrastructure as Code — OpenTofu
 - [ ] **Fase 3**: Secrets Management — HashiCorp Vault
-- [ ] **Fase 4**: K3s + Stack de Observabilidad
+- [x] **Fase 4**: K3s + Stack de Observabilidad
 - [ ] **Fase 5**: Workflows de Automatización con n8n
 - [ ] **Fase 6**: CI/CD y Documentación Final
+
+> **Nota:** La Fase 3 (Vault) se ejecuta después de la Fase 4 porque Vault se despliega dentro de k3s. El README marca la Fase 4 como completada antes que la 3 por esta dependencia lógica.
 
 ## Diferencias clave: Rocky Linux / RHEL vs Ubuntu
 
@@ -44,8 +46,9 @@
 ### Prerrequisitos
 
 - Rocky Linux 9 (ARM64) corriendo en UTM o similar
-- Acceso SSH con clave configurada
-- Ansible instalado en la máquina de control
+- Acceso SSH con clave configurado (puerto 2222)
+- Ansible instalado en la máquina de control (Mac)
+- k3s corriendo en la VM (ver sección Fase 4)
 
 ### Ejecutar el playbook de hardening
 
@@ -79,14 +82,46 @@ rocky-linux-aiops-lab/
 │   │   └── vault-agent/
 │   └── playbooks/site.yml
 ├── tofu/
+│   ├── main.tf
+│   ├── variables.tf
+│   └── outputs.tf
 ├── k3s/manifests/
-│   ├── vault/
+│   ├── namespace.yml
 │   ├── prometheus/
+│   │   ├── serviceaccount.yml    # RBAC para kubernetes_sd_configs
+│   │   ├── configmap.yml         # Prometheus config + alert rules
+│   │   ├── deployment.yml + PVC
+│   │   ├── service.yml
+│   │   └── node-exporter.yml     # DaemonSet para métricas del host
 │   ├── alertmanager/
+│   │   ├── configmap.yml
+│   │   ├── deployment.yml
+│   │   └── service.yml
 │   ├── loki/
+│   │   ├── configmap.yml
+│   │   ├── deployment.yml
+│   │   ├── service.yml
+│   │   └── pvc.yml
 │   ├── alloy/
+│   │   ├── configmap.yml
+│   │   ├── daemonset.yml
+│   │   ├── service.yml
+│   │   ├── serviceaccount.yml
+│   │   └── rbac.yml
 │   ├── grafana/
-│   └── n8n/
+│   │   ├── configmap.yml              # Datasources + dashboard provider
+│   │   ├── dashboard-configmap.yml   # Cluster Overview dashboard JSON
+│   │   ├── deployment.yml + PVC
+│   │   ├── service.yml
+│   │   ├── ingress.yml
+│   │   └── secret.yml
+│   ├── n8n/
+│   │   ├── configmap.yml
+│   │   ├── deployment.yml + PVC
+│   │   ├── service.yml
+│   │   ├── ingress.yml
+│   │   └── secret.yml
+│   └── vault/
 └── docs/
 ```
 
@@ -118,6 +153,100 @@ Recursos definidos:
 - `kubernetes_namespace.aiops` — namespace `aiops` con labels
 - `kubernetes_config_map.prometheus` — configuración de Prometheus + alert rules
 - `kubernetes_config_map.grafana` — datasources de Grafana (Prometheus + Loki)
+
+## Conceptos de Kubernetes (Fase 4)
+
+| Concepto | Descripción |
+|---|---|
+| Pod | Unidad mínima, uno o más contenedores |
+| Deployment | Define cuántas réplicas correr y cómo actualizarlas |
+| DaemonSet | Un pod por cada nodo del cluster — usado por Alloy y Node Exporter |
+| Service | Expone un pod internamente en el cluster (ClusterIP) |
+| Ingress | Expone servicios fuera del cluster — Traefik en k3s por defecto |
+| ConfigMap | Configuración no sensible montada como archivos |
+| Secret | Configuración sensible (passwords) codificada en base64 |
+| PVC | Almacenamiento persistente — k3s usa local-path por defecto |
+| Namespace | Separación lógica — todos los servicios en `aiops` |
+
+## Fase 4 — k3s + Stack de Observabilidad
+
+### Instalación de k3s
+
+```bash
+# En la VM Rocky Linux:
+curl -sfL https://get.k3s.io | sh -
+
+# Verificar:
+sudo kubectl get nodes
+sudo kubectl get pods -A
+
+# Copiar kubeconfig para acceso desde la Mac:
+scp -P 2222 rocky-aiops:/etc/rancher/k3s/k3s.yaml ~/.kube/config
+# Editar server: cambiar 127.0.0.1 por la IP de la VM
+```
+
+### Desplegar el stack
+
+```bash
+# Desde la Mac, con kubeconfig apuntando a la VM:
+kubectl apply -f k3s/manifests/namespace.yml
+
+# Observabilidad (en orden de dependencia):
+kubectl apply -f k3s/manifests/prometheus/
+kubectl apply -f k3s/manifests/alertmanager/
+kubectl apply -f k3s/manifests/loki/
+kubectl apply -f k3s/manifests/alloy/
+kubectl apply -f k3s/manifests/grafana/
+
+# Automatización:
+kubectl apply -f k3s/manifests/n8n/
+```
+
+### Arquitectura del stack
+
+```
+                    ┌──────────────────────────────────────────────┐
+                    │              Mac (navegador)                 │
+                    │   grafana.local ──► Grafana Ingress :80    │
+                    │   n8n.local ──────► n8n Ingress :80        │
+                    └──────────┬───────────────────────────────────┘
+                               │
+                    ┌──────────┴───────────────────────────────────┐
+                    │           k3s cluster (aiops ns)            │
+                    │                                             │
+                    │  ┌─────────────┐    ┌──────────────────┐  │
+                    │  │ Prometheus   │───►│  Alertmanager    │  │
+                    │  │ :9090       │    │  :9093            │  │
+                    │  └──┬──────────┘    └───────┬──────────┘  │
+                    │     │ scrape              │ webhook        │
+                    │  ┌──┴──────────┐    ┌──────┴──────────┐  │
+                    │  │Node Exporter │    │     n8n          │  │
+                    │  │ :9100       │    │  :5678 /metrics  │  │
+                    │  └─────────────┘    └─────────────────┘  │
+                    │                                             │
+                    │  ┌─────────────┐    ┌──────────────────┐  │
+                    │  │  Grafana    │    │  Alloy (DaemonSet)│  │
+                    │  │ :3000       │◄───│  recolecta logs  │  │
+                    │  └──────┬──────┘    └───────┬──────────┘  │
+                    │         │ datasource        │ push logs    │
+                    │  ┌──────┴──────┐    ┌───────┴──────────┐  │
+                    │  │ Prometheus  │    │    Loki           │  │
+                    │  │ :9090       │    │  :3100            │  │
+                    │  └─────────────┘    └──────────────────┘  │
+                    └─────────────────────────────────────────────┘
+```
+
+### Servicios desplegados
+
+| Servicio | Imagen | Puerto | Función |
+|---|---|---|---|
+| Prometheus | prom/prometheus:v2.51.0 | 9090 | Scrape y almacenamiento de métricas |
+| Node Exporter | prom/node-exporter:v1.7.0 | 9100 | Métricas del host (CPU, memoria, disco) |
+| Alertmanager | prom/alertmanager:v0.27.0 | 9093 | Routing de alertas a n8n |
+| Loki | grafana/loki:2.9.6 | 3100 | Almacenamiento y query de logs |
+| Alloy | grafana/alloy:v1.1.0 | 12345 | Recolección de logs de pods |
+| Grafana | grafana/grafana:10.4.1 | 3000 | Dashboards y visualización |
+| n8n | n8nio/n8n:1.36.4 | 5678 | Orquestación de workflows |
 
 ## Lecciones Aprendidas
 

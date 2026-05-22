@@ -1,0 +1,105 @@
+# ============================================================
+# Deployment de Grafana
+# ============================================================
+# Despliega Grafana con provisionamiento automático de datasources
+# y dashboards.  Usa el patrón __FILE para la contraseña de admin
+# como preparación para la inyección deVault en la Fase 3:
+#
+#   GF_SECURITY_ADMIN_PASSWORD__FILE apunta a un archivo dentro
+#   del pod.  Hoy ese archivo viene de un Secret estático, pero
+#   en la Fase 3 Vault Agent lo sobreescribirá con la contraseña
+#   real inyectada dinámicamente.  El sufijo __FILE es una
+#   convención de Grafana que lee el valor desde un archivo en
+#   lugar de una variable de entorno directa, lo cual es
+#   compatible con el patrón de inyección de archivos de Vault.
+# ============================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana                     # Nombre del Deployment
+  namespace: aiops                  # Namespace del laboratorio AIOps
+  labels:
+    app: grafana                    # Etiqueta principal para selector y service
+spec:
+  replicas: 1                       # Una sola réplica — suficiente para k3s single-node
+  selector:
+    matchLabels:
+      app: grafana                  # Selector debe coincidir con las labels del pod
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      securityContext:
+        fsGroup: 472                # GID de Grafana; asegura permisos de escritura en volúmenes
+      containers:
+        - name: grafana
+          image: grafana/grafana:10.4.1  # Imagen oficial de Grafana, versión LTS
+          ports:
+            - containerPort: 3000   # Puerto HTTP de la UI de Grafana
+              name: http
+          env:
+            - name: GF_SECURITY_ADMIN_USER
+              value: admin           # Usuario administrador predeterminado
+            # La variable con sufijo __FILE indica a Grafana que lea la contraseña
+            # desde un archivo.  Actualmente apunta al Secret estático, pero
+            # en la Fase 3 Vault Agent montará el archivo real aquí mismo.
+            - name: GF_SECURITY_ADMIN_PASSWORD__FILE
+              value: /etc/secrets/admin-password  # Ruta donde se monta el secret (y donde Vault inyectará)
+            - name: GF_AUTH_ANONYMOUS_ENABLED
+              value: "false"          # Deshabilita acceso anónimo — requiere login
+            - name: GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH
+              value: /var/lib/grafana/dashboards/cluster-overview.json  # Dashboard inicial al entrar
+          volumeMounts:
+            # --- Provisionamiento de datasources (Prometheus + Loki) ---
+            - name: grafana-datasources
+              mountPath: /etc/grafana/provisioning/datasources  # Grafana carga datasources de aquí
+            # --- Proveedor de dashboards (auto-descubrimiento de JSON) ---
+            - name: grafana-dashboards-provider
+              mountPath: /etc/grafana/provisioning/dashboards   # Config del provider de dashboards
+            # --- Dashboards pre-cargados (cluster-overview, etc.) ---
+            - name: grafana-dashboards
+              mountPath: /var/lib/grafana/dashboards             # Dashboards JSON que el provider escanea
+            # --- Datos persistentes (SQLite, sesiones, preferencias) ---
+            - name: grafana-storage
+              mountPath: /var/lib/grafana                        # PVC para datos persistentes
+            # --- Secret con contraseña de admin (placeholder hasta Fase 3) ---
+            - name: grafana-admin-secret
+              mountPath: /etc/secrets                            # Archivo admin-password para __FILE
+              readOnly: true
+          resources:
+            requests:                # Recursos mínimos garantizados — evita starvation
+              memory: "128Mi"
+              cpu: "100m"
+            limits:                  # Tope máximo — evita que Grafana consuma todo el nodo
+              memory: "512Mi"
+              cpu: "250m"
+          readinessProbe:            # Verifica que Grafana puede recibir tráfico
+            httpGet:
+              path: /api/health      # Endpoint de salud interna de Grafana
+              port: 3000
+            initialDelaySeconds: 10  # Espera 10s antes de la primera comprobación
+            periodSeconds: 10        # Comprueba cada 10s
+            failureThreshold: 3      # Tras 3 fallos consecutivos, marca como no listo
+      volumes:
+        # ConfigMap: datasources pre-provisionados
+        - name: grafana-datasources
+          configMap:
+            name: grafana-datasources  # Debe coincidir con el ConfigMap creado en configmap.yml
+        # ConfigMap: proveedor de dashboards
+        - name: grafana-dashboards-provider
+          configMap:
+            name: grafana-dashboards-provider  # Debe coincidir con el ConfigMap creado en configmap.yml
+        # ConfigMap: dashboards JSON pre-cargados
+        - name: grafana-dashboards
+          configMap:
+            name: grafana-dashboards  # Debe coincidir con el ConfigMap creado en dashboard-configmap.yml
+        # PVC: almacenamiento persistente para estado de Grafana
+        - name: grafana-storage
+          persistentVolumeClaim:
+            claimName: grafana-pvc    # Debe coincidir con el PVC creado en pvc.yml
+        # Secret: contraseña de administrador (placeholder para Vault)
+        - name: grafana-admin-secret
+          secret:
+            secretName: grafana-admin-secret  # Debe coincidir con el Secret creado en secret.yml

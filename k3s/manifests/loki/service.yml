@@ -1,0 +1,27 @@
+# Service de Loki — expone Loki dentro del cluster para que Alloy
+# pueda enviar logs y Grafana pueda consultarlos.
+# Tipo ClusterIP: solo accesible internamente (no exponemos logs al exterior).
+apiVersion: v1
+kind: Service
+metadata:
+  name: loki
+  namespace: aiops
+  labels:
+    app: loki
+spec:
+  type: ClusterIP
+  selector:
+    app: loki
+  ports:
+    # Puerto HTTP — usado por Alloy para enviar logs (POST /loki/api/v1/push)
+    # y por Grafana para consultar logs (GET /loki/api/v1/query_range)
+    - name: http
+      port: 3100
+      targetPort: 3100
+      protocol: TCP
+    # Puerto gRPC — usado para comunicación interna de Loki y para la
+    # API de ingesta gRPC (más eficiente que HTTP para alto volumen)
+    - name: grpc
+      port: 9096
+      targetPort: 9096
+      protocol: TCP

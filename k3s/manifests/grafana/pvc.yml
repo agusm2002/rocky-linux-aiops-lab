@@ -1,0 +1,30 @@
+# ============================================================
+# PersistentVolumeClaim para Grafana
+# ============================================================
+# Grafana necesita almacenamiento persistente para conservar
+# datos entre reinicios del pod.  Sin PVC, cada vez que el pod
+# se recrea se pierden:
+#   - Dashboards creados o modificados manualmente desde la UI
+#   - Anotaciones (annotations) agregadas por los usuarios
+#   - Preferencias de usuario y configuración de paneles
+#   - Base de datos interna SQLite que almacena el estado
+#
+# El StorageClass local-path es el provisionador por defecto
+# en k3s, ideal para un nodo único ARM64 donde no hay SAN ni
+# discos distribuidos.
+# ============================================================
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-pvc                  # Nombre referenciado en el Deployment
+  namespace: aiops
+  labels:
+    app: grafana
+spec:
+  accessModes:
+    - ReadWriteOnce                 # Solo un nodo puede montar este volumen en modo escritura
+  storageClassName: local-path      # Provisionador por defecto de k3s — crea un PV en el host local
+  resources:
+    requests:
+      storage: 2Gi                  # 2 GiB suficientes para dashboards, SQLite y preferencias

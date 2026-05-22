@@ -1,0 +1,119 @@
+# Deployment de Prometheus — servidor principal de métricas del stack AIOps.
+#
+# Flujo: Prometheus scrapea targets → evalúa reglas de alerta → envía alertas
+# a Alertmanager → Alertmanager notifica via webhook a n8n → n8n ejecuta workflows
+# de respuesta automática (crear ticket, reiniciar servicio, escalar, etc.).
+#
+# Notas de diseño:
+# - single replica: en k3s single-node no hay necesidad de alta disponibilidad.
+# - PVC local-path: k3s trae el provisionador local-path por defecto, ideal para
+#   laboratorios donde no se necesita almacenamiento replicado.
+# - runAsNonRoot: Prometheus no necesita privilegios de root para operar; correr
+#   como nobody (65534) sigue el principio de menor privilegio y reduce la
+#   superficie de ataque si el proceso se compromete.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+    name: prometheus
+    namespace: aiops
+    labels:
+        app.kubernetes.io/name: prometheus
+        app.kubernetes.io/part-of: aiops-lab
+spec:
+    # 1 réplica es suficiente en single-node k3s — no hay segundo nodo donde programar.
+    replicas: 1
+    selector:
+        matchLabels:
+            app.kubernetes.io/name: prometheus
+    template:
+        metadata:
+            labels:
+                app.kubernetes.io/name: prometheus
+                app.kubernetes.io/part-of: aiops-lab
+        spec:
+            # ServiceAccount: Prometheus necesita permisos RBAC para descubrir nodos
+            # via kubernetes_sd_configs (role "node") y leer métricas del kubelet.
+            # El ServiceAccount y ClusterRole están definidos en serviceaccount.yml.
+            serviceAccountName: prometheus
+            # Contexto de seguridad: Prometheus corre como usuario nobody (uid 65534).
+            # ¿Por qué no root? Porque Prometheus solo necesita leer config y escribir datos
+            # en /prometheus. Correr como non-root limita el daño si hay una vulnerabilidad
+            # en el código de Prometheus. El fsGroup 65534 asegura que los archivos creados
+            # en el volumen sean escribibles por este usuario.
+            securityContext:
+                runAsUser: 65534
+                runAsGroup: 65534
+                runAsNonRoot: true
+                fsGroup: 65534
+
+            containers:
+                - name: prometheus
+                  image: prom/prometheus:v2.51.0
+                  args:
+                      # Archivo de configuración principal — montado desde el ConfigMap.
+                      - "--config.file=/etc/prometheus/prometheus.yml"
+                      # Directorio de datos TSDB — montado en el PVC para persistencia.
+                      - "--storage.tsdb.path=/prometheus"
+                      # Retención de 15 días: balance entre historial útil y uso de disco
+                      # en un entorno de laboratorio con almacenamiento limitado.
+                      - "--storage.tsdb.retention.time=15d"
+                      # Habilita la API lifecycle para recargar config sin reiniciar el pod.
+                      # Permite hacer POST a /-/reload después de modificar el ConfigMap.
+                      - "--web.enable-lifecycle"
+
+                  ports:
+                      - name: http
+                        containerPort: 9090
+
+                  # Requests y limits: garantizan recursos mínimos (requests) y previenen
+                  # que Prometheus consuma toda la memoria del nodo (limits).
+                  # 256Mi request / 512Mi limit: Prometheus en un lab con ~5 targets
+                  # debería usar entre 150-300Mi. El limit deja margen para picos.
+                  resources:
+                      requests:
+                          memory: "256Mi"
+                          cpu: "100m"
+                      limits:
+                          memory: "512Mi"
+                          cpu: "500m"
+
+                  volumeMounts:
+                      # ConfigMap montado como directorio — contiene prometheus.yml y alert_rules.yml.
+                      - name: config-volume
+                        mountPath: /etc/prometheus
+                      # PVC para datos TSDB — persiste entre reinicios del pod.
+                      - name: data-volume
+                        mountPath: /prometheus
+
+            volumes:
+                # Referencia al ConfigMap prometheus-config con la configuración y reglas.
+                - name: config-volume
+                  configMap:
+                      name: prometheus-config
+                # Referencia al PVC — k3s provisiona automáticamente con local-path.
+                - name: data-volume
+                  persistentVolumeClaim:
+                      claimName: prometheus-data
+
+---
+# PersistentVolumeClaim para datos de Prometheus (TSDB).
+# storageClassName: local-path — provisionador por defecto de k3s.
+# Crea un volumen en el host en /var/lib/rancher/k3s/storage/ automáticamente.
+# 5Gi es suficiente para 15 días de métricas de un lab con ~5 targets.
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+    name: prometheus-data
+    namespace: aiops
+    labels:
+        app.kubernetes.io/name: prometheus
+        app.kubernetes.io/part-of: aiops-lab
+spec:
+    accessModes:
+        - ReadWriteOnce
+    storageClassName: local-path
+    resources:
+        requests:
+            storage: 5Gi

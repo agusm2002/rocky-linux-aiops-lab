@@ -1,0 +1,25 @@
+# PersistentVolumeClaim para Loki — reserva almacenamiento persistente
+# para índices, chunks y datos del compactor.
+#
+# NOTA IMPORTANTE: Loki necesita más almacenamiento que Prometheus porque
+# los logs son significativamente más grandes que las métricas. Una métrica
+# Prometheus ocupa ~8 bytes por sample, pero un log de aplicación puede
+# ocupar cientos de bytes por línea. Con retention de 31 días y múltiples
+# servicios (n8n, Vault, Alertmanager, etc.) generando logs continuamente,
+# 10Gi es un mínimo prudente para el lab.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: loki-data
+  namespace: aiops
+spec:
+  accessModes:
+    # ReadWriteOnce: solo un nodo puede montar este volumen en modo lectura-escritura.
+    # Adecuado para single-node k3s donde solo existe un pod de Loki.
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      # 10Gi proporciona espacio suficiente para 31 días de logs con retención.
+      # Si el lab crece, este valor debe aumentarse proporcionalmente.
+      storage: 10Gi

@@ -1,0 +1,56 @@
+# ServiceAccount, ClusterRole y ClusterRoleBinding para Grafana Alloy.
+#
+# Alloy necesita permisos RBAC para:
+#   - Descubrir pods via discovery.kubernetes (listar pods, leer labels)
+#   - Leer namespaces del cluster
+#
+# Sin estos permisos, el bloque discovery.kubernetes en alloy.alloy
+# falla con error 403 (Forbidden) y no puede descubrir pods para
+# etiquetar y recolectar logs.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: alloy
+  namespace: aiops
+  labels:
+    app: alloy
+    app.kubernetes.io/part-of: aiops-lab
+---
+# ClusterRole: permisos mínimos para que Alloy descubra pods y namespaces
+# en toda la cluster. Se usa ClusterRole (no Role) porque discovery.kubernetes
+# necesita ver pods de todos los namespaces, no solo aiops.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: alloy-aiops
+  labels:
+    app: alloy
+    app.kubernetes.io/part-of: aiops-lab
+rules:
+  # pods: permiso para listar y ver pods — necesario para discovery.kubernetes
+  # con role "pod", que devuelve los pods como targets de descubrimento.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  # namespaces: permiso para listar namespaces — discovery.kubernetes lo usa
+  # para resolver los nombres de namespace en la configuración.
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch"]
+---
+# ClusterRoleBinding: asocia el ClusterRole con el ServiceAccount de Alloy.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: alloy-aiops
+  labels:
+    app: alloy
+    app.kubernetes.io/part-of: aiops-lab
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: alloy-aiops
+subjects:
+  - kind: ServiceAccount
+    name: alloy
+    namespace: aiops

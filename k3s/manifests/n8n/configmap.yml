@@ -1,0 +1,43 @@
+# ============================================================
+# ConfigMap para n8n — variables de entorno no sensibles
+# ============================================================
+# Este ConfigMap agrupa toda la configuración "plana" de n8n que
+# NO contiene secretos.  Las variables sensibles (como la clave
+# de cifrado) viven en un Secret separado para que cada tipo de
+# recurso tenga su propio ciclo de vida y permisos RBAC.
+# ============================================================
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: n8n-config          # Nombre del ConfigMap, referenciado por el Deployment
+  namespace: aiops          # Namespace compartido por todo el lab
+data:
+
+  # --- Configuración de red y URL ---
+  N8N_HOST: "n8n.local"                      # Hostname que n8n usa para generar webhook URLs y enlaces internos.
+                                             # Debe coincidir con el host del Ingress para que los webhooks entrantes
+                                             # apunten al lugar correcto.
+  N8N_PORT: "5678"                           # Puerto donde n8n escucha peticiones HTTP. Valor por defecto de la imagen.
+  N8N_PROTOCOL: "http"                       # Esquema de URL (http vs https). En el lab usamos HTTP puro porque
+                                             # el cifrado TLS termina en el Ingress controller (Traefik).
+  N8N_EDITOR_BASE_URL: "http://n8n.local"    # URL base que el navegador del usuario usa para acceder a la UI.
+                                             # n8n la necesita para construir redirecciones y enlaces absolutos.
+
+  # --- Observabilidad ---
+  N8N_METRICS: "true"                        # HABILITA el endpoint /metrics en formato Prometheus.
+                                             # Sin esta variable, n8n NO expone métricas y Prometheus no puede
+                                             # hacer scraping.  En Phase 2 se configurará un ServiceMonitor
+                                             # que apunta a este pod para recolectar métricas de workflows,
+                                             # ejecuciones, colas, etc.
+
+  # --- Privacidad ---
+  N8N_DIAGNOSTICS_ENABLED: "false"           # Deshabilita la telemetría hacia los servidores de n8n GmbH.
+                                             # En un lab offline esto no tiene sentido y además reduce tráfico
+                                             # saliente innecesario.
+
+  # --- Localización ---
+  GENERIC_TIMEZONE: "America/Argentina/Buenos_Aires"  # Zona horaria que n8n usa para la programación de
+                                                       # triggers basados en tiempo (cron, intervalos).
+  TZ: "America/Argentina/Buenos_Aires"                 # Zona horaria del contenedor a nivel sistema, afecta
+                                                       # logs y cualquier otra operación que dependa del reloj.

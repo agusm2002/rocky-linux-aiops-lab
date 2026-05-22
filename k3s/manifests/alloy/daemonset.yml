@@ -1,0 +1,94 @@
+# DaemonSet de Grafana Alloy — despliega un pod en CADA nodo del cluster.
+# Como DaemonSet, Kubernetes garantiza que siempre hay un pod Alloy corriendo
+# en cada nodo. Esto es fundamental porque Alloy necesita leer los logs del host
+# (/var/log, /var/lib/docker/containers, /run/log/journal) que solo existen
+# localmente en cada máquina.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: alloy
+  namespace: aiops
+  labels:
+    app: alloy
+spec:
+  selector:
+    matchLabels:
+      app: alloy
+  template:
+    metadata:
+      labels:
+        app: alloy
+    spec:
+      # ServiceAccount: Alloy necesita permisos para consultar la API de Kubernetes
+      # (listar pods, leer labels, etc.) para descubrir pods y extraer sus metadatos.
+      # Sin esto, discovery.kubernetes no puede funcionar y no se etiquetan los logs.
+      serviceAccountName: alloy
+      # Security context — Alloy DEBE ejecutarse como root (UID 0).
+      # Motivo: los archivos en /var/log y /run/log/journal del host pertenecen
+      # al root y tienen permisos restrictivos (0600/0640). Un usuario sin
+      # privilegios no puede leerlos, y no es práctico cambiar permisos en
+      # todo el sistema de logs del host. Este es el patrón estándar para
+      # recolectores de logs como Alloy, Promtail y Fluentd.
+      securityContext:
+        runAsUser: 0
+        fsGroup: 0
+      containers:
+        - name: alloy
+          image: grafana/alloy:v1.1.0
+          args:
+            # run: inicia Alloy en modo agente con el config proporcionado.
+            # --server.http.listen-addr: expone la UI y métricas internas
+            # en 0.0.0.0:12345 (accesible desde dentro del cluster).
+            - "run"
+            - "/etc/alloy/alloy.alloy"
+            - "--server.http.listen-addr=0.0.0.0:12345"
+          ports:
+            # 12345: UI de Alloy y endpoint de métricas/self-monitoring.
+            # Útil para debugging — permite ver el estado del pipeline de logs.
+            - containerPort: 12345
+              name: http
+              protocol: TCP
+          # Resources: Alloy es ligero por diseño. Las requests son bajas porque
+          # solo lee archivos y envía HTTP; los limits protegen en picos de logs.
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+          volumeMounts:
+            # Monta el ConfigMap alloy-config como directorio /etc/alloy.
+            # Contiene el archivo alloy.alloy con el pipeline de recolección.
+            - name: config
+              mountPath: /etc/alloy
+            # Monta /var/log del host — contiene logs de systemd y otros
+            # servicios del sistema operativo Rocky Linux.
+            - name: var-log
+              mountPath: /var/log
+              readOnly: true
+            # Monta los logs de contenedores Docker/containerd.
+            # Cada contenedor escribe en un archivo JSON en este directorio.
+            - name: docker-containers
+              mountPath: /var/lib/docker/containers
+              readOnly: true
+            # Monta el journal de systemd — logs del kernel y servicios del host.
+            # Necesario para capturar eventos del sistema (boot, crashes, etc.).
+            - name: var-journal
+              mountPath: /run/log/journal
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: alloy-config
+        # hostPath: monta directorios del nodo directamente en el pod.
+        # Esto permite que Alloy lea archivos de log del sistema operativo host.
+        - name: var-log
+          hostPath:
+            path: /var/log
+        - name: docker-containers
+          hostPath:
+            path: /var/lib/docker/containers
+        - name: var-journal
+          hostPath:
+            path: /run/log/journal

@@ -1,0 +1,40 @@
+# ============================================================
+# Ingress para n8n — acceso desde fuera del cluster
+# ============================================================
+# Este recurso Ingress expone n8n en el host n8n.local para que
+# sea accesible desde el navegador del host Mac.
+#
+# k3s viene con Traefik como ingress controller por defecto, por
+# lo que NO se necesita una annotation de ingressClassName ni
+# kubernetes.io/ingress.class: Traefik maneja automáticamente
+# los recursos Ingress del cluster.
+#
+# PARA ACCEDER DESDE EL MAC:
+# Agregar al /etc/hosts del Mac la línea:
+#   <IP_DE_LA_VM>  n8n.local
+# Por ejemplo, si la VM tiene la IP 192.168.64.10:
+#   192.168.64.10  n8n.local
+# Luego se puede acceder en el navegador: http://n8n.local
+# ============================================================
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: n8n                    # Nombre del recurso Ingress
+  namespace: aiops            # Namespace del lab — debe coincidir con el Service
+  annotations:
+    # No se necesita annotation de ingress-class porque k3s usa
+    # Traefik como controller por defecto y lo detecta automáticamente.
+spec:
+  rules:
+    - host: n8n.local          # Hostname que el navegador usa para llegar a n8n.
+                              # Debe coincidir con N8N_HOST y N8N_EDITOR_BASE_URL en el ConfigMap.
+      http:
+        paths:
+          - path: /            # Captura todas las rutas (n8n sirve tanto UI como API en /)
+            pathType: Prefix   # Prefix match — cualquier sub-ruta se enruta al servicio
+            backend:
+              service:
+                name: n8n      # Nombre del Service definido en service.yml
+                port:
+                  number: 5678  # Puerto del Service (no del contenedor directamente)

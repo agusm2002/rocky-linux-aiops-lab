@@ -1,0 +1,37 @@
+# ============================================================
+# PersistentVolumeClaim para n8n — almacenamiento persistente
+# ============================================================
+# n8n almacena TODO su estado en el directorio /home/node/.n8n:
+#   • Base de datos SQLite (workflows, credenciales cifradas,
+#     historial de ejecuciones).
+#   • Archivos temporales de ejecución.
+#   • Certificados y claves generadas internamente.
+#
+# Sin almacenamiento persistente, cada reinicio del pod perdería
+# todos los workflows y credenciales.  Este PVC de 5Gi garantiza
+# que los datos sobreviven a reinicios, actualizaciones y fallos
+# del pod.
+#
+# IMPORTANTE: n8n con SQLite es adecuado para un lab o entorno
+# de desarrollo con un solo nodo.  En producción se recomienda
+# migrar a PostgreSQL como backend de base de datos para obtener
+# alta disponibilidad, backups más fáciles y soporte para
+# múltiples instancias (queue mode).
+# ============================================================
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: n8n-pvc                # Nombre referenciado en el Deployment como claimName
+  namespace: aiops            # Namespace del lab
+spec:
+  accessModes:
+    - ReadWriteOnce           # Solo un nodo puede montar este volumen en modo lectura-escritura.
+                              # ReadWriteOnce es suficiente porque tenemos un solo pod de n8n.
+  storageClassName: local-path  # StorageClass provista por k3s por defecto. Usa el directorio
+                                # /var/lib/rancher/k3s/storage en el nodo local para crear
+                                # volúmenes dinámicamente. Ideal para un lab de nodo único.
+  resources:
+    requests:
+      storage: 5Gi            # 5 GiB — espacio generoso para SQLite, logs y workflows.
+                              # n8n en SQLite usa muy poco espacio; esto da margen de crecimiento.

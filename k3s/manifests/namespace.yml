@@ -1,0 +1,13 @@
+# Namespace aiops — agrupa todos los recursos del stack de observabilidad.
+# Si OpenTofu ya creó este namespace (tofu apply), aplicar este manifest es
+# idempotente: kubectl lo ignora porque ya existe con la misma spec.
+# En un entorno real, el namespace se gestiona desde un solo lugar (IaC o manifests),
+# no desde ambos. Aquí lo incluimos para que los manifests funcionen de forma
+# independiente si se aplica con kubectl sin OpenTofu.
+apiVersion: v1
+kind: Namespace
+metadata:
+    name: aiops
+    labels:
+        app.kubernetes.io/part-of: aiops-lab
+        managed-by: kubectl

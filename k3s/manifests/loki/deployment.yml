@@ -1,0 +1,80 @@
+# Deployment de Loki — servidor de agregación de logs
+# Despliega exactamente 1 réplica porque es un cluster single-node k3s.
+# Loki almacena índices y chunks en el volumen PVC montado en /loki.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loki
+  namespace: aiops
+  labels:
+    app: loki
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: loki
+  template:
+    metadata:
+      labels:
+        app: loki
+    spec:
+      # Security context a nivel de pod — fuerza la ejecución como usuario no-root
+      # por principio de mínimo privilegio. Loki no necesita acceso root para operar.
+      securityContext:
+        runAsUser: 10001
+        fsGroup: 10001
+        runAsNonRoot: true
+      containers:
+        - name: loki
+          image: grafana/loki:2.9.6
+          args:
+            # -config.file: ruta al archivo de configuración montado desde el ConfigMap.
+            - "-config.file=/etc/loki/loki.yml"
+          ports:
+            # 3100: API HTTP — ingesta de logs y consultas desde Grafana
+            - containerPort: 3100
+              name: http
+              protocol: TCP
+            # 9096: gRPC — API interna de Loki para comunicación entre componentes
+            - containerPort: 9096
+              name: grpc
+              protocol: TCP
+          # Readiness probe: verifica que Loki está listo para recibir tráfico.
+          # El endpoint /ready devuelve 200 solo cuando todos los componentes internos
+          # (ring, ingester, etc.) están inicializados y operativos.
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 3100
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          # Resources: límites ajustados para un lab en ARM64.
+          # Loki en single-node consume poca memoria, pero los bursts de ingesta
+          # pueden requerir hasta 512Mi temporalmente.
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          volumeMounts:
+            # Monta el ConfigMap loki-config como directorio /etc/loki.
+            # Contiene el archivo loki.yml con toda la configuración del servidor.
+            - name: config
+              mountPath: /etc/loki
+            # Monta el PVC de datos en /loki — aquí Loki almacena índices,
+            # chunks, caché y datos del compactor de forma persistente.
+            - name: data
+              mountPath: /loki
+      volumes:
+        # Volume del ConfigMap — materializa loki-config como archivos en el pod.
+        - name: config
+          configMap:
+            name: loki-config
+        # Volume del PVC — almacenamiento persistente para datos de Loki.
+        - name: data
+          persistentVolumeClaim:
+            claimName: loki-data
