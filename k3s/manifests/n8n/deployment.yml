@@ -1,9 +1,8 @@
-# ============================================================
 # Deployment de n8n — motor de automatización de workflows
-# ============================================================
+#
 # n8n se despliega como Deployment con 1 réplica porque su modo
 # predeterminado usa SQLite como backend, lo cual NO soporta
-# múltiples писores simultáneos.  Para escalar horizontalmente
+# múltiples escritores simultáneos.  Para escalar horizontalmente
 # sería necesario cambiar a "queue mode" con Redis y PostgreSQL,
 # lo cual está fuera del alcance de este lab de nodo único.
 #
@@ -13,82 +12,64 @@
 #      obtiene un usuario sin privilegios dentro del contenedor.
 #   2. Compatibilidad con k3s: las imágenes oficiales de n8n
 #      están diseñadas para correr como usuario 'node' (UID 1000).
-# ============================================================
 
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: n8n                   # Nombre del Deployment
-  namespace: aiops           # Namespace del lab
-  labels:
-    app: n8n                 # Etiqueta usada por Service e Ingress como selector
+    name: n8n
+    namespace: aiops
+    labels:
+        app: n8n
 spec:
-  replicas: 1                # Solo 1 réplica — SQLite no soporta escrituras concurrentes
-                             # y n8n en modo default no tiene coordinación entre instancias.
-  selector:
-    matchLabels:
-      app: n8n
-  template:
-    metadata:
-      labels:
-        app: n8n             # Debe coincidir con spec.selector.matchLabels
-    spec:
-      securityContext:
-        runAsUser: 1000      # UID del usuario 'node' dentro de la imagen oficial de n8n.
-                             # Evita que el proceso corra como root (UID 0).
-        runAsNonRoot: true   # Obliga a Kubernetes a rechazar el pod si el proceso intenta
-                             # ejecutarse como root, protegiendo contra imágenes mal configuradas.
-        fsGroup: 1000        # Los volúmenes montados tendrán como grupo propietario el GID 1000,
-                             # permitiendo que el usuario 'node' pueda escribir datos en el PVC.
-      containers:
-        - name: n8n
-          image: n8nio/n8n:1.36.4   # Versión pinned — no usamos :latest para evitar sorpresas
-          ports:
-            - name: http
-              containerPort: 5678     # Puerto donde n8n escucha internamente
-          envFrom:
-            # Se inyectan TODAS las variables del ConfigMap como entorno.
-            # envFrom es preferible a env con valueFrom cuando se quieren
-            # montar todas las claves sin listarlas una por una.
-            - configMapRef:
-                name: n8n-config
-            # Se inyectan las variables sensibles desde el Secret.
-            # Está separado del ConfigMap para que cada recurso tenga su
-            # propio RBAC y ciclo de vida.  En Phase 3, este Secret se
-            # reemplazará por inyección de Vault Agent, pero el Deployment
-            # seguirá consumiendo la variable de la misma forma.
-            - secretRef:
-                name: n8n-secret
-                # Nota: en Kubernetes, secretRef es obligatorio por defecto.
-                # Si el Secret no existe, el pod no arranca.  Esto es correcto
-                # aquí: sin la clave de cifrado, n8n no puede funcionar.
-          volumeMounts:
-            - name: n8n-data
-              mountPath: /home/node/.n8n   # Directorio donde n8n almacena su SQLite,
-                                            # credenciales cifradas e historial de ejecuciones.
-          resources:
-            requests:
-              memory: "256Mi"              # Memoria garantizada en scheduling — k3s la reserva
-              cpu: "100m"                  # 0.1 vCPU garantizadas — suficiente para cargas livianas
-            limits:
-              memory: "512Mi"              # Límite máximo de RAM; si n8n lo supera, se mata (OOMKilled)
-              cpu: "500m"                  # Límite de CPU: 0.5 vCPU — permite ráfagas sin ahogar el nodo
-          readinessProbe:
-            httpGet:
-              path: /healthz              # Endpoint interno de health de n8n
-              port: 5678
-            initialDelaySeconds: 15        # n8n tarda ~10s en arrancar; damos margen antes del primer check
-            periodSeconds: 10             # Se revisa cada 10s
-            failureThreshold: 3           # Después de 3 fallos consecutivos, se marca como no listo
-          livenessProbe:
-            httpGet:
-              path: /healthz              # Mismo endpoint que readiness
-              port: 5678
-            initialDelaySeconds: 30        # Esperamos más antes de empezar a verificar liveness,
-                                            # para no matar un pod que sigue inicializando.
-            periodSeconds: 15             # Se revisa cada 15s (menos frecuente que readiness)
-            failureThreshold: 3           # Después de 3 fallos consecutivos, se reinicia el contenedor
-      volumes:
-        - name: n8n-data
-          persistentVolumeClaim:
-            claimName: n8n-pvc             # PVC definido en pvc.yml — garantiza persistencia de datos
+    replicas: 1
+    selector:
+        matchLabels:
+            app: n8n
+    template:
+        metadata:
+            labels:
+                app: n8n
+        spec:
+            securityContext:
+                runAsUser: 1000
+                runAsNonRoot: true
+                fsGroup: 1000
+            containers:
+                - name: n8n
+                  image: n8nio/n8n:2.22.2
+                  ports:
+                      - name: http
+                        containerPort: 5678
+                  envFrom:
+                      - configMapRef:
+                            name: n8n-config
+                      - secretRef:
+                            name: n8n-secret
+                  volumeMounts:
+                      - name: n8n-data
+                        mountPath: /home/node/.n8n
+                  resources:
+                      requests:
+                          memory: "256Mi"
+                          cpu: "100m"
+                      limits:
+                          memory: "512Mi"
+                          cpu: "500m"
+                  readinessProbe:
+                      httpGet:
+                          path: /healthz
+                          port: 5678
+                      initialDelaySeconds: 15
+                      periodSeconds: 10
+                      failureThreshold: 3
+                  livenessProbe:
+                      httpGet:
+                          path: /healthz
+                          port: 5678
+                      initialDelaySeconds: 30
+                      periodSeconds: 15
+                      failureThreshold: 3
+            volumes:
+                - name: n8n-data
+                  persistentVolumeClaim:
+                      claimName: n8n-pvc

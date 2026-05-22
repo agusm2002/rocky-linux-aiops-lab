@@ -246,7 +246,7 @@ kubectl apply -f k3s/manifests/n8n/
 | Loki | grafana/loki:2.9.6 | 3100 | Almacenamiento y query de logs |
 | Alloy | grafana/alloy:v1.1.0 | 12345 | Recolección de logs de pods |
 | Grafana | grafana/grafana:10.4.1 | 3000 | Dashboards y visualización |
-| n8n | n8nio/n8n:1.36.4 | 5678 | Orquestación de workflows |
+| n8n | n8nio/n8n:2.22.2 | 5678 | Orquestación de workflows |
 
 ## Lecciones Aprendidas
 
