@@ -2,15 +2,16 @@
 # Defaults del rol firewalld
 firewalld_zone: public
 
+# Servicios que deben estar abiertos
+firewalld_services: []
+
 # Puertos que deben estar abiertos
-firewalld_services:
-  - ssh
-
 firewalld_ports:
-  - "6443/tcp"   # k3s API server
-  - "80/tcp"     # HTTP — Ingress
-  - "443/tcp"    # HTTPS — Ingress
-  - "8200/tcp"   # HashiCorp Vault
+    - "2222/tcp" # SSH custom port
+    - "6443/tcp" # k3s API server
+    - "80/tcp" # HTTP — Ingress
+    - "443/tcp" # HTTPS — Ingress
+    - "8200/tcp" # HashiCorp Vault
 
-# Puerto SSH custom (se actualiza desde ssh-hardening)
-firewalld_ssh_port: 22
+# Puerto SSH custom
+firewalld_ssh_port: 2222

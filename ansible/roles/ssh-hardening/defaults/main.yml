@@ -1,11 +1,7 @@
 ---
 # Defaults del rol ssh-hardening
-# IMPORTANTE:
-# - ssh_port: por defecto 22. Cambiar a 2222 solo después de verificar
-#   que la key SSH funciona, sino se pierde acceso.
-# - ssh_password_auth: por defecto true para no perder acceso por SSH.
-#   Cambiar a false después de configurar la clave SSH en authorized_keys.
-ssh_port: 22
-ssh_password_auth: true
+# Hardening completo: password auth deshabilitado, puerto custom
+ssh_port: 2222
+ssh_password_auth: false
 ssh_max_auth_tries: 3
 ssh_login_grace_time: "30"

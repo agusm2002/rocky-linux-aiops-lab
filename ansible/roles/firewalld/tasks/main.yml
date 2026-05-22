@@ -6,51 +6,50 @@
 
 - name: Asegurar que firewalld esté instalado
   ansible.builtin.dnf:
-    name: firewalld
-    state: present
+      name: firewalld
+      state: present
 
 - name: Asegurar que firewalld esté activo y habilitado
   ansible.builtin.systemd:
-    name: firewalld
-    state: started
-    enabled: true
+      name: firewalld
+      state: started
+      enabled: true
 
 - name: Establecer zona default
   ansible.builtin.command:
-    cmd: firewall-cmd --set-default-zone={{ firewalld_zone }}
+      cmd: firewall-cmd --set-default-zone={{ firewalld_zone }}
   changed_when: false
 
 - name: Abrir servicios necesarios
   ansible.posix.firewalld:
-    service: "{{ item }}"
-    zone: "{{ firewalld_zone }}"
-    permanent: true
-    state: enabled
-    immediate: true
+      service: "{{ item }}"
+      zone: "{{ firewalld_zone }}"
+      permanent: true
+      state: enabled
+      immediate: true
   loop: "{{ firewalld_services }}"
 
 - name: Abrir puertos necesarios
   ansible.posix.firewalld:
-    port: "{{ item }}"
-    zone: "{{ firewalld_zone }}"
-    permanent: true
-    state: enabled
-    immediate: true
+      port: "{{ item }}"
+      zone: "{{ firewalld_zone }}"
+      permanent: true
+      state: enabled
+      immediate: true
   loop: "{{ firewalld_ports }}"
 
 - name: Abrir puerto SSH custom
   ansible.posix.firewalld:
-    port: "{{ firewalld_ssh_port }}/tcp"
-    zone: "{{ firewalld_zone }}"
-    permanent: true
-    state: enabled
-    immediate: true
+      port: "{{ firewalld_ssh_port }}/tcp"
+      zone: "{{ firewalld_zone }}"
+      permanent: true
+      state: enabled
+      immediate: true
 
-- name: Asegurar que el puerto 22 default_ssh siga abierto (para no perder acceso)
+- name: Quitar servicio ssh (puerto 22) — ya no se usa puerto estándar
   ansible.posix.firewalld:
-    service: ssh
-    zone: "{{ firewalld_zone }}"
-    permanent: true
-    state: enabled
-    immediate: true
-  when: firewalld_ssh_port != 22
+      service: ssh
+      zone: "{{ firewalld_zone }}"
+      permanent: true
+      state: disabled
+      immediate: true

@@ -4,10 +4,9 @@
 #
 # IMPORTANTE:
 # - PasswordAuthentication se controla con la variable ssh_password_auth.
-#   Por defecto es true para no perder acceso. Cambiar a false después de
-#   configurar la clave SSH en ~/.ssh/authorized_keys del usuario.
-# - El puerto SSH se mantiene en 22 por defecto. Cambiar ssh_port a un
-#   puerto custom (ej: 2222) solo cuando se verifique que la key funciona.
+#   Por defecto false (hardening completo). Cambiar a true solo para debug.
+# - El puerto SSH es 2222 por defecto. Si se cambia, firewalld y SELinux
+#   se actualizan automáticamente.
 
 - name: Instalar el servicio SSH
   ansible.builtin.dnf:
@@ -51,11 +50,20 @@
   when: ssh_port != 22
   notify: Restart sshd
 
+- name: Verificar si el puerto SSH custom ya está en SELinux
+  ansible.builtin.shell:
+      cmd: "semanage port -l | grep 'ssh_port_t' | grep -q '{{ ssh_port }}'"
+  register: selinux_ssh_port_check
+  changed_when: false
+  failed_when: false
+  when: ssh_port != 22
+
 - name: Configurar SELinux para el nuevo puerto SSH
   ansible.builtin.command:
       cmd: semanage port -a -t ssh_port_t -p tcp {{ ssh_port }}
-  when: ssh_port != 22
-  # semanage falla si el puerto ya existe, lo cual es aceptable
+  when:
+      - ssh_port != 22
+      - selinux_ssh_port_check.rc != 0
   failed_when: false
 
 - name: Restart sshd si se cambió el puerto
