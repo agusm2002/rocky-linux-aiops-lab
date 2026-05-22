@@ -22,7 +22,7 @@
 ## Estado del Proyecto
 
 - [x] **Fase 1**: Base del Sistema — Rocky Linux + Hardening RHEL
-- [ ] **Fase 2**: Infrastructure as Code — OpenTofu
+- [x] **Fase 2**: Infrastructure as Code — OpenTofu
 - [ ] **Fase 3**: Secrets Management — HashiCorp Vault
 - [ ] **Fase 4**: K3s + Stack de Observabilidad
 - [ ] **Fase 5**: Workflows de Automatización con n8n
@@ -89,6 +89,35 @@ rocky-linux-aiops-lab/
 │   └── n8n/
 └── docs/
 ```
+
+## IaC Declarativa vs Configuration Management (Fase 2)
+
+| Concepto | Ansible (CM) | OpenTofu (IaC) |
+|---|---|---|
+| Paradigma | Procedural — pasos en orden | Declarativo — estado deseado |
+| Estado | No rastrea estado internamente | Mantiene state file (terraform.tfstate) |
+| Idempotencia | Manual — el playbook la implementa | Automática — `tofu apply` solo aplica diff |
+| Drift detection | No — corre todo otra vez | Sí — `tofu plan` muestra drift |
+| Recreación | No — si un cambio falla, queda a medias | Sí — si un recurso se elimina manualmente, `tofu apply` lo recrea |
+| Cuándo usar | Configurar paquetes, servicios, usuarios del SO | Definir recursos cloud/K8s (namespaces, deployments, PVC) |
+
+Son complementarios: OpenTofu crea los recursos, Ansible los configura.
+
+## Fase 2 — OpenTofu: flujo de trabajo
+
+```bash
+cd tofu
+tofu init       # Inicializa providers
+tofu plan       # Muestra qué va a crear/drift
+tofu apply      # Aplica los cambios
+tofu show       # Inspecciona el state
+tofu destroy    # Elimina todo (ciclo completo)
+```
+
+Recursos definidos:
+- `kubernetes_namespace.aiops` — namespace `aiops` con labels
+- `kubernetes_config_map.prometheus` — configuración de Prometheus + alert rules
+- `kubernetes_config_map.grafana` — datasources de Grafana (Prometheus + Loki)
 
 ## Lecciones Aprendidas
 
