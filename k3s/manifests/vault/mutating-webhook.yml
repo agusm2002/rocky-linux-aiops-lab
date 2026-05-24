@@ -1,0 +1,63 @@
+# ============================================================
+# MutatingWebhookConfiguration para Vault Agent Injector
+# ============================================================
+#
+# Este webhook intercepta la creación de pods en el namespace `aiops`
+# y, si el pod tiene annotations de Vault (vault.hashicorp.com/*),
+# modifica su spec para inyectar el Vault Agent sidecar/init container.
+#
+# El webhook solo intercepta pods con las annotations correctas —
+# los pods que no las tienen pasan de largo sin modificación.
+# Esto evita que el Injector procese pods que no necesitan secrets.
+#
+# ⚠️  EL CA BUNDLE SE COMPLETA AUTOMÁTICAMENTE
+# El campo caBundle se deja vacío inicialmente.  Cuando el Injector
+# arranca con AGENT_INJECT_TLS_AUTO, genera sus propios certificados
+# y parchea este webhook con el CA bundle real.  No es necesario
+# generar certificados manualmente.
+#
+# En producción, se recomienda:
+#  1. Usar cert-manager para gestionar los certificados TLS
+#  2. Establecer failurePolicy: Fail para asegurar que los pods
+#     no arranquen sin secrets inyectados
+#  3. Restringir namespaceSelector a namespaces específicos
+# ============================================================
+
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: vault-agent-injector
+  labels:
+    app: vault-agent-injector
+webhooks:
+  - name: vault.hashicorp.com
+    sideEffects: None
+    admissionReviewVersions: ["v1", "v1beta1"]
+    # Ignorar errores si Vault no está disponible — los pods arrancan
+    # sin secrets inyectados.  En producción, usar "Fail" para forzar
+    # que los pods NO arranquen sin secrets.
+    failurePolicy: Ignore
+    clientConfig:
+      service:
+        name: vault-agent-injector
+        namespace: aiops
+        path: "/mutate"
+        port: 443
+      # El Injector parchea este campo automáticamente con su CA bundle
+      # cuando arranca con AGENT_INJECT_TLS_AUTO.  Se deja vacío aquí.
+      caBundle: ""
+    rules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+    # Solo interceptar pods en el namespace aiops
+    namespaceSelector:
+      matchLabels:
+        name: aiops
+    # Ignorar pods del propio Injector y de Vault para evitar bucles
+    objectSelector:
+      matchExpressions:
+        - key: app
+          operator: NotIn
+          values: ["vault", "vault-agent-injector"]

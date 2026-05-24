@@ -23,7 +23,7 @@
 
 - [x] **Fase 1**: Base del Sistema — Rocky Linux + Hardening RHEL
 - [x] **Fase 2**: Infrastructure as Code — OpenTofu
-- [ ] **Fase 3**: Secrets Management — HashiCorp Vault
+- [x] **Fase 3**: Secrets Management — HashiCorp Vault
 - [x] **Fase 4**: K3s + Stack de Observabilidad
 - [ ] **Fase 5**: Workflows de Automatización con n8n
 - [ ] **Fase 6**: CI/CD y Documentación Final
@@ -111,17 +111,32 @@ rocky-linux-aiops-lab/
 │   ├── grafana/
 │   │   ├── configmap.yml              # Datasources + dashboard provider
 │   │   ├── dashboard-configmap.yml   # Cluster Overview dashboard JSON
-│   │   ├── deployment.yml + PVC
+│   │   ├── deployment.yml             # Con annotations de Vault Agent Injector
 │   │   ├── service.yml
 │   │   ├── ingress.yml
-│   │   └── secret.yml
+│   │   ├── serviceaccount.yml         # ServiceAccount para Vault auth
+│   │   ├── pvc.yml
+│   │   └── secret.yml                 # ⚠️ Obsoleto — reemplazado por Vault
 │   ├── n8n/
 │   │   ├── configmap.yml
-│   │   ├── deployment.yml + PVC
+│   │   ├── deployment.yml             # Con annotations de Vault Agent Injector
 │   │   ├── service.yml
 │   │   ├── ingress.yml
-│   │   └── secret.yml
+│   │   ├── serviceaccount.yml         # ServiceAccount para Vault auth
+│   │   ├── pvc.yml
+│   │   ├── secret.yml                 # ⚠️ Obsoleto — reemplazado por Vault
+│   │   └── workflows/
 │   └── vault/
+│       ├── serviceaccount.yml         # SA para Vault server
+│       ├── configmap.yml              # Config de producción (referencia)
+│       ├── deployment.yml             # Vault server (modo dev)
+│       ├── service.yml                # Servicio ClusterIP :8200
+│       ├── injector-serviceaccount.yml # SA + RBAC para el Injector
+│       ├── injector-deployment.yml     # Vault Agent Injector
+│       ├── injector-service.yml        # Servicio para el webhook
+│       ├── mutating-webhook.yml        # Webhook de mutación de pods
+│       ├── config-job.yml              # Job de configuración (auth, policies, secrets)
+│       └── setup-vault.sh              # Script de despliegue automatizado
 └── docs/
 ```
 
@@ -153,6 +168,125 @@ Recursos definidos:
 - `kubernetes_namespace.aiops` — namespace `aiops` con labels
 - `kubernetes_config_map.prometheus` — configuración de Prometheus + alert rules
 - `kubernetes_config_map.grafana` — datasources de Grafana (Prometheus + Loki)
+
+## Conceptos de Secrets Management (Fase 3)
+
+| Concepto | Descripción |
+|---|---|
+| Kubernetes Secret | Codifica datos en base64 — **no es cifrado**. Cualquiera con acceso al cluster puede leerlos. |
+| HashiCorp Vault | Almacena secrets cifrados y controla el acceso con políticas RBAC. |
+| Vault Agent Injector | Webhook que detecta annotations en pods y añade un init container que obtiene secrets de Vault. |
+| kv-v2 | Backend de Vault para almacenar pares clave-valor versionados (`secret/data/grafana`). |
+| Kubernetes Auth Method | Permite que pods se autentiquen con Vault usando su ServiceAccount JWT. |
+| Vault Policy | Documento HCL que define qué paths puede leer/escribir un rol (`path "secret/data/grafana" { capabilities = ["read"] }`). |
+| Vault Role | Vincula un ServiceAccount de K8s a una política de Vault (`bound_service_account_names=grafana`). |
+| `__FILE` suffix | Convención de Grafana: `GF_SECURITY_ADMIN_PASSWORD__FILE` lee la contraseña desde un archivo. |
+
+### Dev mode vs Producción
+
+| Aspecto | Modo Dev (este lab) | Producción |
+|---|---|---|
+| Almacenamiento | En memoria (se pierde al reiniciar) | Raft/Consul (persistente) |
+| Unseal | Automático (no requiere claves) | Manual (3 de 5 unseal keys) |
+| Root token | Fijado por env var (`dev-root-token`) | Generado en `vault operator init` |
+| TLS | Deshabilitado (HTTP) | Obligatorio (HTTPS) |
+| Audit logging | Deshabilitado | Recomendado |
+| Datos sensibles | No cifrados en reposo | Cifrados con Shamir |
+
+### Flujo de inyección de secrets
+
+```
+Pod creation request (con annotations de Vault)
+        │
+        ▼
+┌─────────────────────────────┐
+│  MutatingWebhook (Injector) │  ← Intercepta la creación del pod
+│  vault.hashicorp.com/*      │
+└─────────────┬───────────────┘
+              │
+              ▼
+┌─────────────────────────────┐
+│  Modifica el pod spec:      │
+│  1. Añade init container     │
+│     (vault-agent-init)       │
+│  2. Añade volumen emptyDir   │
+│     (vault-secrets)          │
+│  3. Monta /vault/secrets/    │
+└─────────────┬───────────────┘
+              │
+              ▼
+┌─────────────────────────────┐
+│  vault-agent-init ejecuta:  │
+│  1. Lee token del SA del pod│
+│  2. Se autentica con Vault  │
+│  3. Obtiene secrets         │
+│  4. Escribe en /vault/secrets│
+└─────────────┬───────────────┘
+              │
+              ▼
+┌─────────────────────────────┐
+│  Contenedor principal arranca│
+│  y lee secrets del archivo: │
+│  - Grafana: __FILE          │
+│  - n8n: source .env file   │
+└─────────────────────────────┘
+```
+
+## Fase 3 — HashiCorp Vault: despliegue
+
+### Despliegue automatizado
+
+```bash
+# Script que genera certificados TLS, despliega Vault + Injector,
+# configura Kubernetes auth, políticas y secrets:
+chmod +x k3s/manifests/vault/setup-vault.sh
+./k3s/manifests/vault/setup-vault.sh
+
+# Redesplegar Grafana y n8n con annotations de Vault:
+kubectl apply -f k3s/manifests/grafana/
+kubectl apply -f k3s/manifests/n8n/
+```
+
+### Componentes de Vault
+
+| Componente | Imagen | Función |
+|---|---|---|
+| Vault Server | `hashicorp/vault:1.16.2` | Almacena y gestiona secrets (modo dev) |
+| Vault Agent Injector | `hashicorp/vault-k8s:1.4.2` | Webhook que inyecta init containers en pods |
+| Config Job | `hashicorp/vault:1.16.2` | Configura auth, políticas y secrets iniciales |
+
+### Verificación
+
+```bash
+# Verificar que Vault está corriendo:
+kubectl get pods -n aiops -l app=vault
+
+# Acceder a la UI de Vault:
+kubectl port-forward -n aiops svc/vault 8200:8200
+# Abrir http://localhost:8200 (token: dev-root-token)
+
+# Verificar que los secrets existen:
+kubectl exec -n aiops vault-0 -- vault kv list secret/
+kubectl exec -n aiops vault-0 -- vault kv get secret/grafana
+kubectl exec -n aiops vault-0 -- vault kv get secret/n8n
+
+# Verificar que los pods leen secrets de Vault:
+kubectl logs -n aiops -l app=grafana -c vault-agent-init
+kubectl logs -n aiops -l app=n8n -c vault-agent-init
+```
+
+### Rotación de secrets
+
+```bash
+# Re-ejecutar el Job de configuración regenera los secrets:
+kubectl delete job vault-config -n aiops
+kubectl apply -f k3s/manifests/vault/config-job.yml
+
+# ⚠️ En modo dev, los datos se pierden si Vault reinicia.
+# Re-ejecutar el Job restaura la configuración.
+```
+
+---
 
 ## Conceptos de Kubernetes (Fase 4)
 
@@ -214,6 +348,20 @@ kubectl apply -f k3s/manifests/n8n/
                     ┌──────────┴───────────────────────────────────┐
                     │           k3s cluster (aiops ns)            │
                     │                                             │
+                    │  ┌───────────────────────────────────────┐ │
+                    │  │    HashiCorp Vault (secrets)          │ │
+                    │  │    ┌────────────┐  ┌─────────────────┐ │ │
+                    │  │    │ Vault Server│  │Vault Agent      │ │ │
+                    │  │    │ :8200       │  │Injector (webhook)│ │ │
+                    │  │    │ secretes ─► │  │ inyecta init ct │ │ │
+                    │  │    │ ┌────────┐  │  │ en pods con     │ │ │
+                    │  │    │ │grafana │  │  │ annotations     │ │ │
+                    │  │    │ │n8n     │  │  │                 │ │ │
+                    │  │    │ └────────┘  │  └─────────────────┘ │ │
+                    │  │    └────────────┘                     │ │
+                    │  └───────────────────────────────────────┘ │
+                    │                    │ inyecta secrets        │
+                    │                    ▼                        │
                     │  ┌─────────────┐    ┌──────────────────┐  │
                     │  │ Prometheus   │───►│  Alertmanager    │  │
                     │  │ :9090       │    │  :9093            │  │
@@ -247,6 +395,8 @@ kubectl apply -f k3s/manifests/n8n/
 | Alloy | grafana/alloy:v1.1.0 | 12345 | Recolección de logs de pods |
 | Grafana | grafana/grafana:10.4.1 | 3000 | Dashboards y visualización |
 | n8n | n8nio/n8n:2.22.2 | 5678 | Orquestación de workflows |
+| Vault | hashicorp/vault:1.16.2 | 8200 | Gestión de secrets cifrados (dev mode) |
+| Vault Injector | hashicorp/vault-k8s:1.4.2 | 443 | Webhook de inyección de secrets en pods |
 
 ## Lecciones Aprendidas
 

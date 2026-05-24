@@ -1,0 +1,27 @@
+# Service de Vault — expone la API dentro del cluster
+#
+# Los pods de Grafana y n8n se conectan a Vault a través de este
+# Service para autenticarse y obtener secrets en runtime.
+# El Vault Agent Injector también usa este Service para validar
+# tokens de ServiceAccount contra la API de Vault.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vault
+  namespace: aiops
+  labels:
+    app: vault
+spec:
+  type: ClusterIP      # Solo acceso interno al cluster
+  selector:
+    app: vault
+  ports:
+    - name: http
+      port: 8200        # Puerto de la API HTTP de Vault
+      targetPort: 8200
+      protocol: TCP
+    - name: internal
+      port: 8201        # Puerto interno del cluster (listeners de Raft)
+      targetPort: 8201
+      protocol: TCP

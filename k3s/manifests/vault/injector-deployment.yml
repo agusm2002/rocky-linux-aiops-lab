@@ -1,0 +1,120 @@
+# ============================================================
+# Deployment de Vault Agent Injector
+# ============================================================
+#
+# El Agent Injector es un Mutating Admission Webhook que intercepta
+# la creación de pods.  Cuando detecta las annotations de Vault
+# (vault.hashicorp.com/agent-inject), modifica el pod spec para
+# añadir:
+#   1. Un contenedor init (vault-agent-init) que recupera secrets
+#      antes de que el contenedor principal arranque.
+#   2. Opcionalmente, un sidecar (vault-agent) que renueva tokens
+#      y actualiza secrets en runtime.
+#
+# Flujo de inyección:
+#   1. kubectl apply -f deployment.yml (con annotations de Vault)
+#   2. API server envía AdmissionReview al Injector
+#   3. Injector lee las annotations del pod
+#   4. Injector modifica el spec: añade volumen compartido + init container
+#   5. API server crea el pod modificado
+#   6. vault-agent-init se autentica con Vault, recupera secrets,
+#      los escribe en archivos del volumen compartido
+#   7. El contenedor principal arranca y lee los secrets desde archivos
+#
+# El Injector NO accede a los secrets — solo modifica el pod spec.
+# El Vault Agent (init container) es quien se autentica con Vault
+# usando el token del ServiceAccount del pod.
+# ============================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vault-agent-injector
+  namespace: aiops
+  labels:
+    app: vault-agent-injector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vault-agent-injector
+  template:
+    metadata:
+      labels:
+        app: vault-agent-injector
+    spec:
+      serviceAccountName: vault-agent-injector
+      containers:
+        - name: vault-agent-injector
+          image: hashicorp/vault-k8s:1.4.2
+          args:
+            - agent-inject
+            - -log-level=info
+            - -log-format=json
+          env:
+            # Dirección del servidor de Vault dentro del cluster
+            - name: AGENT_INJECT_VAULT_ADDR
+              value: "http://vault.aiops.svc.cluster.local:8200"
+            # Auth path para Kubernetes — usa el método kubernetes auth
+            - name: AGENT_INJECT_VAULT_AUTH_PATH
+              value: "auth/kubernetes"
+            # Ruta al archivo de configuración del agente de Vault (template default)
+            - name: AGENT_INJECT_VAULT_IMAGE
+              value: "hashicorp/vault:1.16.2"
+            # Nombre del Secret que contiene los certificados TLS del webhook
+            - name: AGENT_INJECT_TLS_SECRET
+              value: "vault-agent-injector-tls"
+            # Nombre del archivo de certificado TLS dentro del Secret
+            - name: AGENT_INJECT_TLS_CERT_FILE
+              value: "tls.crt"
+            # Nombre del archivo de clave TLS dentro del Secret
+            - name: AGENT_INJECT_TLS_KEY_FILE
+              value: "tls.key"
+            # Flag para auto-generar certificados TLS si el Secret no existe
+            # En producción, se recomienda usar cert-manager o certs pre-generados
+            - name: AGENT_INJECT_TLS_AUTO
+              value: "vault-agent-injector-tls"
+            # Hosts para el certificado TLS auto-generado
+            - name: AGENT_INJECT_TLS_AUTO_HOSTS
+              value: "vault-agent-injector,vault-agent-injector.aiops,vault-agent-injector.aiops.svc,vault-agent-injector.aiops.svc.cluster.local"
+            # Dirección donde escucha el webhook (dentro del pod)
+            - name: AGENT_INJECT_LISTEN
+              value: ":8080"
+          ports:
+            - name: https
+              containerPort: 8080
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8080
+              scheme: HTTPS
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8080
+              scheme: HTTPS
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "250m"
+          volumeMounts:
+            - name: tls
+              mountPath: /etc/tls
+              readOnly: true
+      volumes:
+        - name: tls
+          secret:
+            secretName: vault-agent-injector-tls
+            # Si el Secret no existe aún (primera vez), el Injector
+            # lo genera automáticamente con AGENT_INJECT_TLS_AUTO.
+            optional: true

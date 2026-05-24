@@ -1,0 +1,174 @@
+# ============================================================
+# ConfigMap y Job de configuración inicial de Vault
+# ============================================================
+#
+# Este Job configura Vault después del despliegue inicial:
+#   1. Espera a que Vault esté listo (health check)
+#   2. Habilita el método de autenticación Kubernetes
+#   3. Configura la conexión al API server de K8s
+#   4. Crea políticas RBAC para n8n y Grafana
+#   5. Crea roles que vinculan ServiceAccounts a políticas
+#   6. Almacena secrets en el backend kv-v2
+#
+# ⚠️  MODO DEV: Este Job usa el root token directo como variable
+#     de entorno.  En producción, se usaría un token temporal o
+#     AppRole.  Además, los datos se pierden si Vault reinicia
+#     (almacenamiento en memoria), por lo que este Job debe
+#     re-ejecutarse manualmente con:
+#       kubectl delete job vault-config -n aiops
+#       kubectl apply -f k3s/manifests/vault/config-job.yml
+# ============================================================
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vault-config-script
+  namespace: aiops
+  labels:
+    app: vault
+data:
+  configure-vault.sh: |
+    #!/bin/sh
+    set -e
+
+    echo "=== Esperando a que Vault esté listo ==="
+    # Reintentar hasta que Vault responda al health check
+    until vault status > /dev/null 2>&1; do
+      echo "Vault no está listo, reintentando en 2s..."
+      sleep 2
+    done
+    echo "✓ Vault está listo"
+
+    echo ""
+    echo "=== Habilitando método de autenticación Kubernetes ==="
+    # Habilitar Kubernetes auth si no existe ya
+    vault auth list | grep -q "kubernetes/" || vault auth enable kubernetes
+    echo "✓ Método Kubernetes habilitado"
+
+    echo ""
+    echo "=== Configurando Kubernetes auth con API server de k3s ==="
+    # Configurar la conexión al API server de Kubernetes
+    # Vault usa esta conexión para validar ServiceAccount tokens
+    vault write auth/kubernetes/config \
+      kubernetes_host="https://$KUBERNETES_SERVICE_HOST:$KUBERNETES_SERVICE_PORT" \
+      kubernetes_ca_cert=@/var/run/secrets/kubernetes.io/serviceaccount/ca.crt \
+      disable_local_ca_jwt=false
+    echo "✓ Kubernetes auth configurado"
+
+    echo ""
+    echo "=== Creando políticas de acceso ==="
+
+    # Política para Grafana — acceso de solo lectura a secret/grafana
+    vault policy write grafana - <<'EOF'
+    path "secret/data/grafana" {
+      capabilities = ["read"]
+    }
+    EOF
+    echo "✓ Política 'grafana' creada"
+
+    # Política para n8n — acceso de solo lectura a secret/n8n
+    vault policy write n8n - <<'EOF'
+    path "secret/data/n8n" {
+      capabilities = ["read"]
+    }
+    EOF
+    echo "✓ Política 'n8n' creada"
+
+    echo ""
+    echo "=== Creando roles que vinculan ServiceAccounts a políticas ==="
+
+    # Rol para Grafana — mapea el ServiceAccount 'grafana' del namespace 'aiops'
+    # a la política 'grafana'.  Solo los pods con este ServiceAccount pueden
+    # leer secrets de Grafana desde Vault.
+    vault write auth/kubernetes/role/grafana \
+      bound_service_account_names=grafana \
+      bound_service_account_namespaces=aiops \
+      policies=grafana \
+      ttl=1h
+    echo "✓ Rol 'grafana' creado (SA: grafana, policy: grafana, ttl: 1h)"
+
+    # Rol para n8n — mapea el ServiceAccount 'n8n' del namespace 'aiops'
+    # a la política 'n8n'.  Solo los pods con este ServiceAccount pueden
+    # leer secrets de n8n desde Vault.
+    vault write auth/kubernetes/role/n8n \
+      bound_service_account_names=n8n \
+      bound_service_account_namespaces=aiops \
+      policies=n8n \
+      ttl=1h
+    echo "✓ Rol 'n8n' creado (SA: n8n, policy: n8n, ttl: 1h)"
+
+    echo ""
+    echo "=== Almacenando secrets ==="
+
+    # Generar contraseña aleatoria para Grafana admin
+    GRAFANA_PASSWORD=$(openssl rand -base64 16 | tr -d '=/+' | head -c 20)
+    vault kv put secret/grafana admin_password="$GRAFANA_PASSWORD"
+    echo "✓ Secret 'grafana' almacenado (password generada: ${GRAFANA_PASSWORD:0:4}...)"
+
+    # Generar clave de cifrado para n8n
+    N8N_KEY=$(openssl rand -base64 32 | tr -d '\n')
+    vault kv put secret/n8n encryption_key="$N8N_KEY"
+    echo "✓ Secret 'n8n' almacenado (key generada: ${N8N_KEY:0:4}...)"
+
+    echo ""
+    echo "=========================================="
+    echo "✓ Configuración de Vault completada!"
+    echo "=========================================="
+    echo ""
+    echo "Secrets almacenados en Vault:"
+    echo "  - secret/grafana (admin_password)"
+    echo "  - secret/n8n     (encryption_key)"
+    echo ""
+    echo "Para verificar:"
+    echo "  kubectl exec -n aiops vault-0 -- vault kv get secret/grafana"
+    echo "  kubectl exec -n aiops vault-0 -- vault kv get secret/n8n"
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: vault-config
+  namespace: aiops
+  labels:
+    app: vault
+spec:
+  # Eliminar el Job después de completarse exitosamente para limpiar
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 5
+  template:
+    metadata:
+      labels:
+        app: vault-config
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: vault-config
+          image: hashicorp/vault:1.16.2
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              # Montar el script de configuración desde el ConfigMap
+              chmod +x /scripts/configure-vault.sh
+              /scripts/configure-vault.sh
+          env:
+            # Dirección de Vault dentro del cluster
+            - name: VAULT_ADDR
+              value: "http://vault.aiops.svc.cluster.local:8200"
+            # Token raíz — solo para modo dev.
+            # ⚠️ NUNCA usar en producción.  En producción se usaría
+            #    AppRole o un token temporal con permisos limitados.
+            - name: VAULT_TOKEN
+              value: "dev-root-token"
+            # Deshabilitar verificación TLS (Vault usa HTTP en dev mode)
+            - name: VAULT_SKIP_VERIFY
+              value: "true"
+          volumeMounts:
+            - name: config-script
+              mountPath: /scripts
+              readOnly: true
+      volumes:
+        - name: config-script
+          configMap:
+            name: vault-config-script
+            defaultMode: 0755

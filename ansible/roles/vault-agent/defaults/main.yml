@@ -1,0 +1,40 @@
+# ============================================================
+# vault-agent — Configuración del agente de Vault a nivel SO
+# ============================================================
+# Este rol de Ansible instala y configura HashiCorp Vault Agent
+# en la VM Rocky Linux.  El Vault Agent a nivel de SO permite que
+# procesos fuera de Kubernetes (como scripts de monitoreo, tareas
+# cron, o servicios del sistema) puedan autenticarse con Vault y
+# obtener secrets sin necesidad de interactuar con la API de
+# Kubernetes.
+#
+# En este lab, el Vault Agent a nivel del SO complementa al
+# Vault Agent Injector de Kubernetes:
+#   - Kubernetes: los pods usan ServiceAccount tokens → Vault Agent Injector
+#   - SO (VM):     los procesos usan AppRole → Vault Agent en systemd
+#
+# El agente se ejecuta como servicio de systemd y renueva los
+# tokens automáticamente, cacheando secrets en disco.
+# ============================================================
+
+---
+# Valores por defecto para el rol vault-agent
+vault_agent_version: "1.16.2"
+vault_agent_arch: "arm64"
+vault_agent_install_dir: "/usr/local/bin"
+vault_agent_config_dir: "/etc/vault.d"
+vault_agent_data_dir: "/opt/vault/data"
+vault_agent_log_dir: "/var/log/vault"
+
+# Dirección del servidor de Vault (dentro del cluster k3s)
+# En modo dev, Vault escucha en HTTP (no HTTPS)
+vault_agent_addr: "http://127.0.0.1:8200"
+
+# Método de autenticación para el agente a nivel de SO
+# AppRole es el método recomendado para máquinas (no pods)
+vault_agent_auth_method: "approle"
+vault_agent_role_id: ""    # Se configura con vars del vault
+vault_agent_secret_id: ""   # Se configura con vars del vault
+
+# Template para el archivo de configuración del agente
+vault_agent_template_dest: "/etc/vault.d/agent.hcl"

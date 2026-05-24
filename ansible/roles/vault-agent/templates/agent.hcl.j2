@@ -1,0 +1,59 @@
+# ============================================================
+# Configuración del Vault Agent a nivel del SO
+# ============================================================
+# Este template genera el archivo de configuración HCL del
+# Vault Agent que se ejecuta como servicio de systemd en la VM.
+#
+# El agente se autentica con Vault usando AppRole (el método
+# recomendado para máquinas) y cachea tokens y secrets en disco.
+#
+# En producción, este archivo se usaría para que los servicios
+# del host (fuera de k3s) puedan acceder a secrets de Vault.
+# En el lab (modo dev), la utilidad es limitada pero se incluye
+# como referencia para la transición a producción.
+# ============================================================
+
+pid_file = "{{ vault_agent_data_dir }}/agent.pid"
+
+# Auto-auth: configuración de autenticación automática
+auto_auth {
+  method "approle" {
+    config = {
+      role_id   = "{{ vault_agent_role_id }}"
+      secret_id = "{{ vault_agent_secret_id }}"
+    }
+  }
+
+  sink "file" {
+    config = {
+      path = "{{ vault_agent_data_dir }}/token"
+    }
+  }
+}
+
+# Cache de tokens y secrets en disco
+cache {
+  use_auto_auth_token = true
+}
+
+# Template: renderiza secrets de Vault como archivos locales
+# En producción, se usarían templates para generar configuraciones
+# de servicios (e.g., configuración de bases de datos con credenciales).
+template {
+  source      = "{{ vault_agent_config_dir }}/templates/secrets.tmpl"
+  destination = "{{ vault_agent_config_dir }}/rendered/secrets.env"
+  error_on_missing_key = true
+}
+
+# Listener HTTP para el agente (permite consultas locales)
+listener "tcp" {
+  address     = "127.0.0.1:8100"
+  tls_disable = true
+}
+
+# Conexión al servidor de Vault
+vault {
+  address = "{{ vault_agent_addr }}"
+  # En modo dev, Vault usa HTTP (no HTTPS)
+  tls_skip_verify = true
+}

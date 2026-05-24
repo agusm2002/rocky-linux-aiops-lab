@@ -1,12 +1,23 @@
 ---
 # Playbook principal — Rocky Linux AIOps Lab
-# Ejecuta todos los roles de hardening en orden
+# Ejecuta todos los roles de hardening y Vault Agent en orden
 
 - name: Hardening base del sistema Rocky Linux 9
   hosts: rocky-aiops
   become: true
   roles:
-    - system-base
-    - firewalld
-    - selinux
-    - ssh-hardening
+      - system-base
+      - firewalld
+      - selinux
+      - ssh-hardening
+
+# Vault Agent a nivel del SO — se ejecuta después del hardening base.
+# Instala el agente de Vault como servicio de systemd para que los
+# procesos del host (fuera de k3s) puedan acceder a secrets de Vault.
+# Prerequisito: Vault debe estar corriendo en k3s antes de ejecutar
+# este rol.  Ver k3s/manifests/vault/ para el despliegue de Vault.
+- name: Vault Agent — acceso a secrets desde el SO
+  hosts: rocky-aiops
+  become: true
+  roles:
+      - vault-agent

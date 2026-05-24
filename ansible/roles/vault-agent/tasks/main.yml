@@ -1,0 +1,136 @@
+# ============================================================
+# vault-agent — Tareas de instalación y configuración
+# ============================================================
+# Instala Vault Agent como servicio de systemd en la VM Rocky
+# Linux, en paralelo con el Vault Agent Injector de Kubernetes.
+#
+# Este rol NO configura el Vault Agent Injector (eso se hace
+# con annotations en los manifests de Kubernetes).  Este rol
+# instala el agente a nivel del sistema operativo para que los
+# procesos del host (fuera de k3s) puedan acceder a secrets de Vault.
+#
+# NOTA: En el estado actual del lab (Vault en modo dev dentro de
+# k3s), el Vault Agent a nivel de SO tiene utilidad limitada porque
+# los datos de Vault se pierden al reiniciar.  Se incluye como
+# referencia para la transición a producción.
+# ============================================================
+
+---
+- name: Verificar arquitectura del sistema
+  ansible.builtin.command: uname -m
+  register: system_arch
+  changed_when: false
+
+- name: Crear grupo vault
+  ansible.builtin.group:
+    name: vault
+    system: true
+    state: present
+
+- name: Crear usuario vault
+  ansible.builtin.user:
+    name: vault
+    group: vault
+    system: true
+    shell: /sbin/nologin
+    home: "{{ vault_agent_data_dir }}"
+    create_home: false
+    comment: "HashiCorp Vault Agent"
+
+- name: Crear directorios de configuración
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: vault
+    group: vault
+    mode: "0755"
+  loop:
+    - "{{ vault_agent_config_dir }}"
+    - "{{ vault_agent_data_dir }}"
+    - "{{ vault_agent_log_dir }}"
+
+- name: Descargar Vault Agent
+  ansible.builtin.get_url:
+    url: "https://releases.hashicorp.com/vault/{{ vault_agent_version }}/vault_{{ vault_agent_version }}_linux_{{ vault_agent_arch }}.zip"
+    dest: "/tmp/vault_{{ vault_agent_version }}.zip"
+    mode: "0644"
+  register: vault_download
+
+- name: Descomprimir Vault Agent
+  ansible.builtin.unarchive:
+    src: "/tmp/vault_{{ vault_agent_version }}.zip"
+    dest: "{{ vault_agent_install_dir }}"
+    remote_src: true
+  when: vault_download.changed
+
+- name: Establecer permisos del binario
+  ansible.builtin.file:
+    path: "{{ vault_agent_install_dir }}/vault"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Verificar instalación de Vault Agent
+  ansible.builtin.command: "{{ vault_agent_install_dir }}/vault version"
+  register: vault_version_output
+  changed_when: false
+
+- name: Mostrar versión instalada
+  ansible.builtin.debug:
+    msg: "{{ vault_version_output.stdout }}"
+
+- name: Crear archivo de configuración del agente
+  ansible.builtin.template:
+    src: agent.hcl.j2
+    dest: "{{ vault_agent_config_dir }}/agent.hcl"
+    owner: vault
+    group: vault
+    mode: "0644"
+  notify: Reiniciar vault-agent
+
+- name: Crear servicio de systemd para Vault Agent
+  ansible.builtin.copy:
+    content: |
+      [Unit]
+      Description=HashiCorp Vault Agent
+      Documentation=https://www.vaultproject.io/docs/agent
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=notify
+      ExecStart={{ vault_agent_install_dir }}/vault agent -config={{ vault_agent_config_dir }}/agent.hcl
+      ExecReload=/bin/kill -HUP $MAINPID
+      KillMode=process
+      KillSignal=SIGINT
+      Restart=on-failure
+      RestartSec=5
+      TimeoutStopSec=30
+      User=vault
+      Group=vault
+      AmbientCapabilities=CAP_IPC_LOCK
+      CapabilityBoundingSet=CAP_IPC_LOCK
+      LimitMEMLOCK=infinity
+
+      [Install]
+      WantedBy=multi-user.target
+    dest: /etc/systemd/system/vault-agent.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reiniciar vault-agent
+
+- name: Habilitar y arrancar Vault Agent
+  ansible.builtin.systemd:
+    name: vault-agent
+    enabled: true
+    state: started
+
+- name: Verificar que el agente está corriendo
+  ansible.builtin.systemd:
+    name: vault-agent
+  register: vault_agent_status
+
+- name: Mostrar estado del agente
+  ansible.builtin.debug:
+    msg: "Vault Agent está {{ vault_agent_status.status.ActiveState }}"

@@ -1,0 +1,25 @@
+# Service del Vault Agent Injector
+#
+# El API server de Kubernetes envía AdmissionReviews a este Service
+# cuando crea pods.  El Injector los intercepta y modifica el pod
+# spec si encuentra annotations de Vault Agent.
+#
+# El puerto 443 es obligatorio para MutatingWebhookConfigurations —
+# el API server de K8s solo envía webhooks a través de TLS (puerto 443).
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vault-agent-injector
+  namespace: aiops
+  labels:
+    app: vault-agent-injector
+spec:
+  type: ClusterIP
+  selector:
+    app: vault-agent-injector
+  ports:
+    - name: https
+      port: 443        # Puerto estándar para webhooks — el API server exige TLS
+      targetPort: 8080  # Puerto interno del contenedor Injector
+      protocol: TCP

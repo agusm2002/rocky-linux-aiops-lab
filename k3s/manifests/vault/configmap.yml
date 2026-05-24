@@ -1,0 +1,41 @@
+# ConfigMap de Vault — referencia para transición a producción
+#
+# En modo dev (VAULT_DEV=true), Vault ignora este archivo y opera con
+# configuración por defecto: almacenamiento en memoria, TLS deshabilitado
+# en la interfaz interna, y auto-unseal.  Este ConfigMap se mantiene como
+# documentación de la configuración que sería necesaria en un despliegue
+# de producción con almacenamiento persistente (Raft o Consul).
+#
+# Para producción, el Deployment montaría este ConfigMap y habilitaría
+# TLS, persistencia y audit logging.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vault-config
+  namespace: aiops
+  labels:
+    app: vault
+data:
+  # Este archivo NO se monta en modo dev.  Se incluye como referencia
+  # para la transición a producción.
+  vault.hcl: |
+    # Configuración de producción (referencia)
+    storage "raft" {
+      path    = "/vault/data"
+      node_id = "vault-1"
+    }
+
+    listener "tcp" {
+      address     = "0.0.0.0:8200"
+      cluster_address = "0.0.0.0:8201"
+      tls_disable = false
+      tls_cert_file = "/vault/tls/tls.crt"
+      tls_key_file  = "/vault/tls/tls.key"
+    }
+
+    api_addr = "https://vault.aiops.svc.cluster.local:8200"
+    cluster_addr = "https://vault.aiops.svc.cluster.local:8201"
+
+    disable_mlock = true
+    ui = true

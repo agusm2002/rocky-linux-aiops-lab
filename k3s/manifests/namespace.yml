@@ -11,3 +11,4 @@ metadata:
     labels:
         app.kubernetes.io/part-of: aiops-lab
         managed-by: kubectl
+        name: aiops # Requerido por Vault Agent Injector (namespaceSelector del webhook)
