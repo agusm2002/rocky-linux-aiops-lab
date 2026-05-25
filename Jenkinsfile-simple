@@ -16,7 +16,6 @@ pipeline {
         stage('Checkout') {
             steps {
                 echo "Pipeline iniciado - Build #${BUILD_NUMBER}"
-                echo "Branch: ${BRANCH_NAME}"
             }
         }
 
