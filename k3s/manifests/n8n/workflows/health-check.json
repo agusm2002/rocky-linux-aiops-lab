@@ -1,0 +1,255 @@
+{
+    "name": "Health Check",
+    "nodes": [
+        {
+            "parameters": {
+                "mode": "custom",
+                "cronExpression": "*/5 * * * *"
+            },
+            "id": "ce8938dd-e925-4338-833b-6668699dd021",
+            "name": "Schedule Trigger",
+            "type": "n8n-nodes-base.scheduleTrigger",
+            "typeVersion": 1,
+            "position": [250, 300]
+        },
+        {
+            "parameters": {
+                "method": "GET",
+                "url": "https://kubernetes.default.svc/api/v1/namespaces/aiops/pods",
+                "authentication": "none",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "Authorization",
+                            "value": "Bearer K8S_SA_TOKEN_PLACEHOLDER"
+                        }
+                    ]
+                },
+                "options": {
+                    "allowUnauthorizedCerts": true
+                }
+            },
+            "id": "e539db0a-aa91-422c-8a5a-9ea98959319a",
+            "name": "Query K8s API",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.1,
+            "position": [450, 300]
+        },
+        {
+            "parameters": {
+                "jsCode": "const pods = $input.all()[0].json.items || [];\nconst failedPods = pods.filter(pod => {\n  if (pod.status.phase === 'Failed') return true;\n  if (pod.status.containerStatuses) {\n    return pod.status.containerStatuses.some(cs => {\n      return cs.state.waiting && (cs.state.waiting.reason === 'CrashLoopBackOff' || cs.state.waiting.reason === 'Error');\n    });\n  }\n  return false;\n});\n\nreturn [{\n  json: {\n    failedPods: failedPods.map(p => ({\n      name: p.metadata.name,\n      namespace: p.metadata.namespace,\n      phase: p.status.phase,\n      reason: p.status.containerStatuses?.[0]?.state?.waiting?.reason || 'Unknown'\n    })),\n    hasFailures: failedPods.length > 0 ? 'true' : 'false'\n  }\n}];"
+            },
+            "id": "0e10a44b-9809-437f-91ea-294cc780f8c2",
+            "name": "Filter Failed Pods",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [650, 300]
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": true,
+                        "leftValue": "",
+                        "typeValidation": "strict"
+                    },
+                    "conditions": [
+                        {
+                            "id": "52505e85-e0a5-4542-9be5-70c150353892",
+                            "leftValue": "={{ $json.hasFailures }}",
+                            "rightValue": "true",
+                            "operator": {
+                                "type": "string",
+                                "operation": "equals"
+                            }
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "id": "9966aa40-3a19-4061-b629-164a699b2397",
+            "name": "Has Failures?",
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 2,
+            "position": [850, 300]
+        },
+        {
+            "parameters": {
+                "jsCode": "const pods = $json.failedPods.map(p => p.name + ' (' + p.phase + ')').join(', ');\n\nconst body = JSON.stringify({\n  model: 'deepseek-v4-flash',\n  messages: [\n    { role: 'system', content: 'You are a Kubernetes operations assistant. Analyze the following unhealthy pods and suggest likely causes and remediation steps. Be concise.' },\n    { role: 'user', content: 'The following pods are unhealthy in the cluster:\\n\\n' + pods }\n  ]\n});\n\nreturn [{ json: { llmBody: body } }];"
+            },
+            "id": "d4e5f6a7-8901-2345-6789-0123456789de",
+            "name": "Build LLM Body",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [1050, 200]
+        },
+        {
+            "parameters": {
+                "method": "POST",
+                "url": "https://opencode.ai/zen/go/v1/chat/completions",
+                "authentication": "none",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "Authorization",
+                            "value": "Bearer SK_REPLACE_ME_OPENCODE_API_KEY"
+                        },
+                        {
+                            "name": "Content-Type",
+                            "value": "application/json"
+                        }
+                    ]
+                },
+                "sendBody": true,
+                "contentType": "json",
+                "specifyBody": "json",
+                "jsonBody": "={{ JSON.parse($json.llmBody) }}"
+            },
+            "id": "54a4fb63-c9b1-40db-bbae-e3879aee0fd1",
+            "name": "Analyze with LLM",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.1,
+            "position": [1250, 200]
+        },
+        {
+            "parameters": {
+                "jsCode": "const details = $('Filter Failed Pods').item.json.failedPods.map(p => p.name + ' - ' + p.phase + ' - ' + p.reason).join('\\n');\nconst analysis = $('Analyze with LLM').item.json.choices[0].message.content;\n\nlet content = `⚠️ **Health Check Alert**\n**Unhealthy pods detected:** ${$('Filter Failed Pods').item.json.failedPods.length}\n\n**Pod details:**\n\`\`\`\n${details}\n\`\`\`\n\n**LLM Analysis:**\n${analysis}`;\n\nif (content.length > 1900) {\n  content = content.substring(0, 1900) + '...';\n}\n\nreturn [{ json: { body: JSON.stringify({ content: content }) } }];"
+            },
+            "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+            "name": "Build Discord Body",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [1450, 200]
+        },
+        {
+            "parameters": {
+                "method": "POST",
+                "url": "https://discord.com/api/webhooks/DISCORD_WEBHOOK_ID/DISCORD_WEBHOOK_TOKEN",
+                "sendBody": true,
+                "contentType": "json",
+                "specifyBody": "json",
+                "jsonBody": "={{ JSON.parse($json.body) }}"
+            },
+            "id": "7f2c83cf-024d-41c9-9c2d-4096a2942112",
+            "name": "Notify Discord",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.1,
+            "position": [1650, 200]
+        },
+        {
+            "parameters": {
+                "method": "POST",
+                "url": "http://loki.aiops.svc.cluster.local:3100/loki/api/v1/push",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "Content-Type",
+                            "value": "application/json"
+                        }
+                    ]
+                },
+                "sendBody": true,
+                "contentType": "json",
+                "specifyBody": "string",
+                "body": "={{ '{\"streams\":[{\"stream\":{\"job\":\"n8n-health-check\",\"namespace\":\"aiops\"},\"values\":[[\"' + (Date.now() * 1000000) + '\", \"health-check: all systems healthy\"]]}]}' }}"
+            },
+            "id": "11cb87ec-4100-4e7e-94e6-54aa157d57a8",
+            "name": "Log Healthy",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.1,
+            "position": [1250, 400]
+        }
+    ],
+    "connections": {
+        "Schedule Trigger": {
+            "main": [
+                [
+                    {
+                        "node": "Query K8s API",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Query K8s API": {
+            "main": [
+                [
+                    {
+                        "node": "Filter Failed Pods",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Filter Failed Pods": {
+            "main": [
+                [
+                    {
+                        "node": "Has Failures?",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Has Failures?": {
+            "main": [
+                [
+                    {
+                        "node": "Build LLM Body",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Log Healthy",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Build LLM Body": {
+            "main": [
+                [
+                    {
+                        "node": "Analyze with LLM",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Analyze with LLM": {
+            "main": [
+                [
+                    {
+                        "node": "Build Discord Body",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Build Discord Body": {
+            "main": [
+                [
+                    {
+                        "node": "Notify Discord",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    },
+    "settings": {
+        "executionOrder": "v1"
+    }
+}

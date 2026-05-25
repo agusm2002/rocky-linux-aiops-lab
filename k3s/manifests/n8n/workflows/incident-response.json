@@ -1,0 +1,169 @@
+{
+    "name": "Incident Response",
+    "nodes": [
+        {
+            "parameters": {
+                "httpMethod": "POST",
+                "path": "alertmanager",
+                "responseMode": "lastNode",
+                "options": {}
+            },
+            "id": "3c03ab2a-59b8-4549-a26a-9182204fe06b",
+            "name": "Webhook",
+            "type": "n8n-nodes-base.webhook",
+            "typeVersion": 1,
+            "position": [250, 300],
+            "webhookId": "3c03ab2a-59b8-4549-a26a-9182204fe06b"
+        },
+        {
+            "parameters": {
+                "values": {
+                    "string": [
+                        {
+                            "name": "alertname",
+                            "value": "={{ $json.body.commonLabels.alertname || $json.body.alerts[0].labels.alertname }}"
+                        },
+                        {
+                            "name": "severity",
+                            "value": "={{ $json.body.commonLabels.severity || $json.body.alerts[0].labels.severity }}"
+                        },
+                        {
+                            "name": "description",
+                            "value": "={{ $json.body.commonAnnotations.description || $json.body.alerts[0].annotations.description }}"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "id": "169752f6-aaac-4b86-85f8-fd59fb73f5b6",
+            "name": "Extract Alert Data",
+            "type": "n8n-nodes-base.set",
+            "typeVersion": 2,
+            "position": [450, 300]
+        },
+        {
+            "parameters": {
+                "jsCode": "const body = JSON.stringify({\n  model: 'deepseek-v4-flash',\n  messages: [\n    { role: 'system', content: 'You are an infrastructure operations assistant. Analyze the following alert and suggest possible root causes and corrective actions. Be concise but thorough.' },\n    { role: 'user', content: 'Alert Name: ' + $json.alertname + '\\nSeverity: ' + $json.severity + '\\nDescription: ' + $json.description }\n  ]\n});\nreturn [{ json: { llmBody: body } }];"
+            },
+            "id": "a2b3c4d5-e6f7-8901-2345-6789012345ab",
+            "name": "Build LLM Body",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [650, 300]
+        },
+        {
+            "parameters": {
+                "method": "POST",
+                "url": "https://opencode.ai/zen/go/v1/chat/completions",
+                "authentication": "none",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "Authorization",
+                            "value": "Bearer SK_REPLACE_ME_OPENCODE_API_KEY"
+                        },
+                        {
+                            "name": "Content-Type",
+                            "value": "application/json"
+                        }
+                    ]
+                },
+                "sendBody": true,
+                "contentType": "json",
+                "specifyBody": "json",
+                "jsonBody": "={{ JSON.parse($json.llmBody) }}"
+            },
+            "id": "649d014e-5676-4404-8061-50223a49030b",
+            "name": "Analyze with LLM",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.1,
+            "position": [850, 300]
+        },
+        {
+            "parameters": {
+                "jsCode": "const alertname = $('Extract Alert Data').item.json.alertname;\nconst severity = $('Extract Alert Data').item.json.severity;\nconst description = $('Extract Alert Data').item.json.description;\nconst analysis = $('Analyze with LLM').item.json.choices[0].message.content;\n\nlet content = `🚨 **Infrastructure Alert: ${alertname}**\n**Severity:** ${severity}\n**Description:** ${description}\n\n**LLM Analysis:**\n${analysis}`;\n\nif (content.length > 1900) {\n  content = content.substring(0, 1900) + '...';\n}\n\nreturn [{ json: { body: JSON.stringify({ content: content }) } }];"
+            },
+            "id": "c3d4e5f6-7890-abcd-ef01-2345678901cd",
+            "name": "Build Discord Body",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [1050, 300]
+        },
+        {
+            "parameters": {
+                "method": "POST",
+                "url": "https://discord.com/api/webhooks/DISCORD_WEBHOOK_ID/DISCORD_WEBHOOK_TOKEN",
+                "sendBody": true,
+                "contentType": "json",
+                "specifyBody": "json",
+                "jsonBody": "={{ JSON.parse($json.body) }}"
+            },
+            "id": "7853d4f7-15cf-4a1c-8e9f-512490887d36",
+            "name": "Notify Discord",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.1,
+            "position": [1250, 300]
+        }
+    ],
+    "connections": {
+        "Webhook": {
+            "main": [
+                [
+                    {
+                        "node": "Extract Alert Data",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Extract Alert Data": {
+            "main": [
+                [
+                    {
+                        "node": "Build LLM Body",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Build LLM Body": {
+            "main": [
+                [
+                    {
+                        "node": "Analyze with LLM",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Analyze with LLM": {
+            "main": [
+                [
+                    {
+                        "node": "Build Discord Body",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Build Discord Body": {
+            "main": [
+                [
+                    {
+                        "node": "Notify Discord",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    },
+    "settings": {
+        "executionOrder": "v1"
+    }
+}

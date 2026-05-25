@@ -25,7 +25,7 @@
 - [x] **Fase 2**: Infrastructure as Code — OpenTofu
 - [x] **Fase 3**: Secrets Management — HashiCorp Vault
 - [x] **Fase 4**: K3s + Stack de Observabilidad
-- [ ] **Fase 5**: Workflows de Automatización con n8n
+- [x] **Fase 5**: Workflows de Automatización con n8n
 - [ ] **Fase 6**: CI/CD y Documentación Final
 
 > **Nota:** La Fase 3 (Vault) se ejecuta después de la Fase 4 porque Vault se despliega dentro de k3s. El README marca la Fase 4 como completada antes que la 3 por esta dependencia lógica.
@@ -125,7 +125,8 @@ rocky-linux-aiops-lab/
 │   │   ├── serviceaccount.yml         # ServiceAccount para Vault auth
 │   │   ├── pvc.yml
 │   │   ├── secret.yml                 # ⚠️ Obsoleto — reemplazado por Vault
-│   │   └── workflows/
+│   │   ├── workflows/                 # Workflows limpios (sin secrets)
+│   │   └── workflows-local/           # Workflows con credenciales (gitignoreado)
 │   └── vault/
 │       ├── serviceaccount.yml         # SA para Vault server
 │       ├── configmap.yml              # Config de producción (referencia)
@@ -398,6 +399,112 @@ kubectl apply -f k3s/manifests/n8n/
 | Vault | hashicorp/vault:1.16.2 | 8200 | Gestión de secrets cifrados (dev mode) |
 | Vault Injector | hashicorp/vault-k8s:1.4.2 | 443 | Webhook de inyección de secrets en pods |
 
+## Fase 5 — Workflows de Automatización con n8n ✅
+
+### Resumen
+
+Fase completada. Se construyó el diferenciador central del proyecto: el loop automatizado `crash → Prometheus → Alertmanager → n8n → LLM → Discord`. Cuatro workflows de ITOps orquestan el análisis inteligente de alertas, logs y health checks usando la API de OpenCode Go (DeepSeek V4 Flash). Todos los workflows fueron probados end-to-end.
+
+### Arquitectura del flujo end-to-end
+
+```mermaid
+graph LR
+    A[Crash de Pod] -->|kubelet| B[Prometheus]
+    B -->|alerta| C[Alertmanager]
+    C -->|webhook| D[n8n]
+    D -->|prompt| E[OpenCode Go API]
+    E -->|análisis| D
+    D -->|reporte| F[Discord]
+    D -->|logs| G[Loki]
+```
+
+### Workflows implementados
+
+| Workflow | Trigger | Función | Estado |
+|---|---|---|---|
+| **Test Connection** | Manual | Valida conectividad a OpenCode Go antes de activar workflows productivos | ✅ |
+| **Incident Response** | Webhook (`/webhook/alertmanager`) | Recibe alertas de Alertmanager, analiza con LLM y notifica a Discord | ✅ |
+| **Log Analysis** | Cron (cada hora) | Consulta Loki, resume errores con LLM y envía reporte a Discord | ✅ |
+| **Health Check** | Cron (cada 5 min) | Consulta K8s API (pods en namespace aiops), filtra fallas, analiza con LLM y notifica Discord. Si no hay fallos, loguea "healthy" a Loki | ✅ |
+
+### Credenciales
+
+Las credenciales de OpenCode Go, Discord y el token de ServiceAccount de K8s se almacenan en Vault y se inyectan en runtime vía Vault Agent Injector (`deployment.yml`).
+
+- `secret/n8n` → `N8N_ENCRYPTION_KEY`
+- `secret/n8n/credentials` → `N8N_OPENCODE_API_KEY`, `N8N_DISCORD_WEBHOOK_URL`
+- El token de K8s se lee desde `/var/run/secrets/kubernetes.io/serviceaccount/token`
+
+**Limitación conocida en n8n 2.22.2:** `$env.VAR` no se resuelve correctamente en headers de nodos HTTP Request cuando se usa como expresión. Como workaround:
+
+- Los workflows productivos se importan con credenciales hardcodeadas desde `workflows-local/` (gitignoreado, **no se sube al repo**).
+- Los archivos en `workflows/` contienen placeholders (`SK_REPLACE_ME_...`, `DISCORD_WEBHOOK_ID/...`, `K8S_SA_TOKEN_PLACEHOLDER`) y son seguros para commitear.
+
+### Acceso a n8n
+
+El Service de n8n está expuesto como **NodePort** en el puerto **30522**:
+
+```
+http://192.168.64.21:30522
+```
+
+No requiere port-forward. Alternativamente, usar `n8n.local` con el Ingress si el DNS está configurado.
+
+### Cómo importar los workflows
+
+1. Accedé a la UI de n8n en `http://192.168.64.21:30522`.
+
+2. Andá a **Workflows → Add Workflow → Import from File**.
+
+3. Importá desde `k3s/manifests/n8n/workflows-local/` (versiones con credenciales reales, gitignoreadas) o desde `k3s/manifests/n8n/workflows/` (versiones limpias con placeholders, requieren completar credenciales manualmente).
+
+4. Activá los workflows con el toggle **Active**.
+
+### Incident Simulation — paso a paso
+
+Para probar sin crash real:
+
+```bash
+curl -X POST http://192.168.64.21:30522/webhook/alertmanager \
+  -H "Content-Type: application/json" \
+  -d '{"commonLabels":{"alertname":"HighCPUUsage","severity":"critical"},"commonAnnotations":{"description":"CPU al 95% en node-1 hace 5 minutos"}}'
+```
+
+Para simular un crash real (el flujo completo):
+
+1. **Forzar un crash:** `kubectl delete pod -n aiops -l app=grafana --force`
+2. **Prometheus detecta** que el pod no responde y genera una alerta.
+3. **Alertmanager** enruta la alerta vía webhook a n8n.
+4. **n8n** ejecuta el workflow *Incident Response*, extrae el contexto y llama a OpenCode Go API.
+5. **El LLM** devuelve: causa probable, comandos sugeridos y prioridad.
+6. **Discord** recibe el mensaje con el análisis completo (truncado a 1900 chars si excede).
+
+### Infraestructura de soporte validada
+
+- **Alertmanager**: receptor `n8n-webhook` → `http://n8n.aiops.svc.cluster.local:5678/webhook/alertmanager`
+- **RBAC de n8n**: `ClusterRole n8n-pod-reader` con `get/list/watch` sobre pods, vinculado al `ServiceAccount n8n`
+- **Vault Agent Injector**: inyecta `N8N_ENCRYPTION_KEY` y credenciales externas desde Vault
+- **ConfigMap**: `N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"` para permitir `$env` en Code nodes
+- **PVC**: `n8n-pvc` (1Gi) para persistencia de la base SQLite y workflows
+- **Service**: NodePort 30522 para acceso directo sin port-forward
+
+### Fixes aplicados durante la fase
+
+- **Encryption key mismatch**: Vault tenía una key distinta a la del config de n8n, causando CrashLoopBackOff. Solución: sincronizar la key real desde el config existente hacia Vault (`vault kv patch secret/n8n`).
+- **`require('fs')` bloqueado en Code nodes**: el sandbox del JS Task Runner de n8n 2.x no permite `fs`. Solución: mover la lógica de armado de bodies a Code nodes y usar `specifyBody: "json"` + `jsonBody: {{ JSON.parse($json.llmBody) }}` en los HTTP Request.
+- **`$env.VAR` en headers de HTTP Request**: no evalúa correctamente en n8n 2.22.2. Solución: hardcodear credenciales para uso local (workflows-local) y mantener placeholders en el repo.
+- **Límite de 2000 caracteres en Discord**: el análisis del LLM puede ser muy extenso. Solución: truncar a 1900 chars en los Code nodes que arman el mensaje.
+- **IF node type mismatch**: `boolean` en el IF node no matchea correctamente contra expresiones que evalúan a boolean desde un Code node. Solución: retornar `hasFailures` como string (`'true'/'false'`) y usar comparación `string equals true`.
+
 ## Lecciones Aprendidas
 
-*(Se completará al final del proyecto — comparación con el proyecto 1)*
+### n8n
+- **El sandbox del JS Task Runner es restrictivo**: no permite `require('fs')` ni acceso al filesystem. Cualquier lectura de archivos debe hacerse antes del arranque y exportarse como variable de entorno.
+- **`$env` en headers de HTTP Request no funciona en 2.22.2**: es necesario hardcodear o usar Code nodes intermedios como proxy de variables de entorno.
+- **El CLI `import:workflow` tiene bugs con ciertos formatos JSON**: siempre importar desde la UI para garantizar integridad del workflow.
+- **Vault Agent Injector es confiable**: las variables inyectadas aparecen correctamente en `/proc/<pid>/environ` del proceso n8n, pero el sandbox del task runner no las hereda.
+
+### General
+- **SQLite + PVC es suficiente para lab single-node**: no requiere PostgreSQL ni Redis para queue mode si solo hay 1 réplica.
+- **La encryption key de n8n debe persistir entre reinicios**: si Vault genera una nueva key, n8n no arranca porque la DB está cifrada con la anterior. Solución: persistir la key real en Vault, no regenerarla.
+- **El webhook de Alertmanager a n8n funciona con el Service DNS interno** (`n8n.aiops.svc.cluster.local`), no requiere exponer n8n externamente para este flujo.

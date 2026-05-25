@@ -1,0 +1,173 @@
+{
+    "name": "Log Analysis",
+    "nodes": [
+        {
+            "parameters": {
+                "mode": "custom",
+                "cronExpression": "0 * * * *"
+            },
+            "id": "39d097fb-8b90-4a3c-ac48-46e46448632e",
+            "name": "Schedule Trigger",
+            "type": "n8n-nodes-base.scheduleTrigger",
+            "typeVersion": 1,
+            "position": [250, 300]
+        },
+        {
+            "parameters": {
+                "method": "GET",
+                "url": "http://loki.aiops.svc.cluster.local:3100/loki/api/v1/query_range",
+                "sendQuery": true,
+                "queryParameters": {
+                    "parameters": [
+                        {
+                            "name": "query",
+                            "value": "{namespace=\"aiops\"} |~ \"(?i)(error|warn|fail|critical)\""
+                        },
+                        {
+                            "name": "start",
+                            "value": "={{ Math.floor((Date.now() - 7200000) / 1000) }}"
+                        },
+                        {
+                            "name": "end",
+                            "value": "={{ Math.floor(Date.now() / 1000) }}"
+                        },
+                        {
+                            "name": "limit",
+                            "value": "50"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "id": "f4338231-ac06-453b-8d5f-b15d911aa264",
+            "name": "Query Loki",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.1,
+            "position": [450, 300]
+        },
+        {
+            "parameters": {
+                "jsCode": "const result = $input.all()[0].json.data.result;\nconst lines = [];\nfor (const stream of result || []) {\n  for (const value of stream.values || []) {\n    lines.push(value[1]);\n  }\n}\nconst summary = lines.slice(0, 20).join('\\n');\nconst prompt = 'Analyze these system logs (' + lines.length + ' total lines, showing up to 20):\\n\\n' + summary;\nconst llmBody = JSON.stringify({\n  model: 'deepseek-v4-flash',\n  messages: [\n    { role: 'system', content: 'You are a system log analyst. Analyze the provided logs, summarize problems detected, their frequency, and priority. Be concise.' },\n    { role: 'user', content: prompt }\n  ]\n});\nreturn [{ json: { llmBody: llmBody, logs: summary, count: lines.length } }];"
+            },
+            "id": "38cb993e-4583-4d19-932d-f3712ab4ace2",
+            "name": "Process Logs",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [650, 300]
+        },
+        {
+            "parameters": {
+                "method": "POST",
+                "url": "https://opencode.ai/zen/go/v1/chat/completions",
+                "authentication": "none",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "Authorization",
+                            "value": "Bearer SK_REPLACE_ME_OPENCODE_API_KEY"
+                        },
+                        {
+                            "name": "Content-Type",
+                            "value": "application/json"
+                        }
+                    ]
+                },
+                "sendBody": true,
+                "contentType": "json",
+                "specifyBody": "json",
+                "jsonBody": "={{ JSON.parse($json.llmBody) }}"
+            },
+            "id": "30539e94-01c7-487e-b700-a63c45cd90d9",
+            "name": "Analyze with LLM",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.1,
+            "position": [850, 300]
+        },
+        {
+            "parameters": {
+                "jsCode": "const content = '📊 **Hourly Log Analysis Report**\\n**Total lines analyzed:** ' + $('Process Logs').item.json.count + '\\n\\n**LLM Summary:**\\n' + $('Analyze with LLM').item.json.choices[0].message.content + '\\n\\n_Raw logs (first 20 lines):_\\n\\`\\`\\`\\n' + $('Process Logs').item.json.logs + '\\n\\`\\`\\`';\nconst body = JSON.stringify({ content: content });\nreturn [{ json: { body: body } }];"
+            },
+            "id": "7a8b9c0d-e1f2-a3b4-c5d6-e7f8a9b0c1d2",
+            "name": "Build Discord Body",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [1050, 300]
+        },
+        {
+            "parameters": {
+                "method": "POST",
+                "url": "https://discord.com/api/webhooks/DISCORD_WEBHOOK_ID/DISCORD_WEBHOOK_TOKEN",
+                "sendBody": true,
+                "contentType": "json",
+                "specifyBody": "json",
+                "jsonBody": "={{ JSON.parse($json.body) }}"
+            },
+            "id": "0d11ebdb-2bfb-480f-b9d6-b094f1400fff",
+            "name": "Notify Discord",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.1,
+            "position": [1250, 300]
+        }
+    ],
+    "connections": {
+        "Schedule Trigger": {
+            "main": [
+                [
+                    {
+                        "node": "Query Loki",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Query Loki": {
+            "main": [
+                [
+                    {
+                        "node": "Process Logs",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Process Logs": {
+            "main": [
+                [
+                    {
+                        "node": "Analyze with LLM",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Analyze with LLM": {
+            "main": [
+                [
+                    {
+                        "node": "Build Discord Body",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Build Discord Body": {
+            "main": [
+                [
+                    {
+                        "node": "Notify Discord",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    },
+    "settings": {
+        "executionOrder": "v1"
+    }
+}

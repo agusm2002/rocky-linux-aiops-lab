@@ -1,27 +1,14 @@
-# ============================================================
-# Service para n8n — exposición interna dentro del cluster
-# ============================================================
-# Este Service de tipo ClusterIP expone n8n dentro del cluster
-# en el puerto 5678.  No es accesible desde fuera del cluster;
-# para acceso externo se usa el Ingress (ingress.yml).
-#
-# El Service actúa como punto de entrada estable: los pods pueden
-# morir y recrearse con distinta IP, pero el Service siempre
-# resuelve el nombre DNS 'n8n.aiops.svc.cluster.local' a los
-# pods vivos que matcheen el selector.
-# ============================================================
-
 apiVersion: v1
 kind: Service
 metadata:
-  name: n8n                    # Nombre DNS dentro del cluster: n8n.aiops.svc.cluster.local
-  namespace: aiops            # Namespace del lab
+    name: n8n
+    namespace: aiops
 spec:
-  type: ClusterIP             # Solo accesible dentro del cluster — no genera ExternalIP ni LoadBalancer
-  selector:
-    app: n8n                  # Selecciona pods con esta etiqueta (debe coincidir con el Deployment)
-  ports:
-    - name: http              # Nombre del puerto, usado por el Ingress como backend port
-      port: 5678              # Puerto del Service (lo que los otros pods usan para conectar)
-      targetPort: 5678        # Puerto del contenedor al que se envía el tráfico
-                              # Como ambos coinciden, el mapping es directo
+    type: NodePort
+    selector:
+        app: n8n
+    ports:
+        - name: http
+          port: 5678
+          targetPort: 5678
+          nodePort: 30522

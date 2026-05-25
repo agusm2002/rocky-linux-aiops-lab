@@ -8,3 +8,6 @@ secrets/
 *.key
 vault-token
 rocky-linux-aiops-lab-plan-final.md
+
+# Workflows locales con credenciales hardcodeadas (no subir)
+k3s/manifests/n8n/workflows-local/

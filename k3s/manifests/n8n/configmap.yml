@@ -32,6 +32,12 @@ data:
     # y no deja cargar la UI.
     N8N_SECURE_COOKIE: "false"
 
+    # --- Acceso a variables de entorno en nodos ---
+    # Por defecto n8n 2.x bloquea $env en expresiones por seguridad.
+    # Los workflows de este lab leen N8N_OPENCODE_API_KEY y
+    # N8N_DISCORD_WEBHOOK_URL desde env vars inyectadas por Vault.
+    N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
+
     # --- Localización ---
     GENERIC_TIMEZONE: "America/Argentina/Buenos_Aires"
     TZ: "America/Argentina/Buenos_Aires"
