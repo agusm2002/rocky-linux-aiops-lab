@@ -131,7 +131,7 @@ pipeline {
 
     post {
         failure {
-            node('master') {
+            node('built-in') {
                 sh '''
                     curl -X POST http://n8n.aiops.svc.cluster.local:5678/webhook/jenkins-failure \
                         -H "Content-Type: application/json" \
@@ -141,7 +141,7 @@ pipeline {
             }
         }
         success {
-            node('master') {
+            node('built-in') {
                 sh '''
                     curl -X POST http://n8n.aiops.svc.cluster.local:5678/webhook/jenkins-success \
                         -H "Content-Type: application/json" \
