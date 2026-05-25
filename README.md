@@ -30,7 +30,7 @@
 - [x] **Fase 4**: K3s + Stack de Observabilidad
 - [x] **Fase 5**: Workflows de Automatización con n8n
 - [x] **Fase 6**: CI/CD — Jenkins Self-Hosted en k3s
-- [ ] **Fase 7**: GitOps con ArgoCD
+- [x] **Fase 7**: GitOps con ArgoCD
 - [ ] **Fase 8**: Seguridad para Producción (fail2ban + dnf-automatic + NSG)
 - [ ] **Fase 9**: Migración a Oracle Cloud Free Tier
 - [ ] **Fase 10**: SLO/SLI + Documentación Final + Demo grabada
@@ -575,6 +575,94 @@ k3s/manifests/jenkins/
 ├── serviceaccount.yml
 └── configmap.yml
 Jenkinsfile
+```
+
+## Fase 7 — GitOps con ArgoCD ✅
+
+### Resumen
+
+ArgoCD instalado en el cluster k3s, gestionando 60+ recursos Kubernetes desde el repo Git. El estado del cluster es reconciliado automáticamente: cualquier cambio manual se detecta como drift y se corrige en segundos.
+
+### Arquitectura GitOps
+
+```mermaid
+graph LR
+    A[GitHub Push] -->|webhook / polling| B[ArgoCD]
+    B -->|compara desired vs live| C[k3s Cluster]
+    C -->|drift detectado| B
+    B -->|auto-sync| C
+    D[DevOps Engineer] -->|git push| A
+    E[kubectl delete manual] -->|drift| C
+```
+
+### Componentes desplegados
+
+| Componente | Descripción |
+|---|---|
+| **argocd-application-controller** | StatefulSet — reconcilia el estado del cluster |
+| **argocd-repo-server** | Clona el repo Git y genera los manifests |
+| **argocd-server** | UI + API de ArgoCD |
+| **argocd-redis** | Cache para el controller |
+| **argocd-dex-server** | SSO/OIDC (incluido por defecto) |
+| **Application `aiops-lab`** | Apunta a `k3s/manifests/` del repo, namespace `aiops` |
+
+### Flujo GitOps
+
+```
+Git repo (k3s/manifests/) → ArgoCD → k3s cluster
+```
+
+1. Hacés un cambio en los manifests y hacés `git push`
+2. ArgoCD detecta el cambio (polling cada 3 min, o webhook)
+3. Compara el estado deseado (git) con el real (cluster)
+4. Si hay diferencia → auto-sync: aplica los cambios al cluster
+
+### Demo del Drift
+
+Para validar el self-healing, se borró manualmente el deployment de Grafana:
+
+```bash
+kubectl delete deployment grafana -n aiops
+```
+
+Resultado:
+- ArgoCD detectó el drift en segundos
+- Estado cambió a `OutOfSync`
+- Auto-sync recreó el deployment automáticamente (~30s)
+- Estado volvió a `Synced` y `Healthy`
+
+Esto demuestra el principio fundamental de GitOps: **el repo Git es la fuente de verdad**. Cualquier cambio manual es efímero.
+
+### Correcciones aplicadas durante la fase
+
+| Issue | Causa | Fix |
+|---|---|---|
+| ArgoCD solo veía 1 recurso | `directory.recurse` no estaba activado | Agregar `recurse: true` al source |
+| `health-check.json` rompía el parsing | JSON inválido (backticks) en workflow de n8n | Agregar `exclude: '{workflows/*,*.json}'` |
+| caBundle del webhook de Vault se revertía | ArgoCD self-heal sobreescribía el valor runtime | Agregar `ignoreDifferences` para el `caBundle` |
+| Grafana no recibía Vault secrets | Annotations en Deployment metadata en vez de pod template | Mover `vault.hashicorp.com/*` a `spec.template.metadata.annotations` |
+
+### Acceso
+
+```bash
+# Password inicial
+kubectl -n argocd get secret argocd-initial-admin-secret \
+  -o jsonpath="{.data.password}" | base64 -d
+
+# Port-forward a la UI
+kubectl port-forward svc/argocd-server -n argocd 8080:443
+# Abrir https://localhost:8080 — usuario: admin
+
+# O por ingress (argocd.local)
+curl -H "Host: argocd.local" http://<k3s-host>/api/version
+```
+
+### Archivos creados
+
+```
+k3s/manifests/argocd/
+├── application.yml    # Application ArgoCD con auto-sync + ignoreDifferences
+└── ingress.yml        # Ingress para acceso vía argocd.local
 ```
 
 ## Lecciones Aprendidas
