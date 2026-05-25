@@ -1,0 +1,60 @@
+# ConfigMap con script de inicialización Groovy para Jenkins.
+# Cuando -Djenkins.install.runSetupWizard=false está activo, Jenkins
+# arranca sin security realm configurado (SecurityRealm$None).
+# Este script configura HudsonPrivateSecurityRealm y crea el usuario
+# admin, que es el setup mínimo para un entorno de lab.
+#
+# Referencia: https://www.jenkins.io/doc/book/installing/initial-settings/
+apiVersion: v1
+kind: ConfigMap
+metadata:
+    name: jenkins-init-scripts
+    namespace: aiops
+    labels:
+        app: jenkins
+        app.kubernetes.io/part-of: aiops-lab
+data:
+    create-admin.groovy: |
+        import jenkins.model.*
+        import hudson.security.*
+
+        def instance = Jenkins.getInstanceOrNull()
+        if (instance == null) {
+            println "Jenkins instance no disponible aun — abortando."
+            return
+        }
+
+        // Configurar security realm si no existe uno configurado.
+        // Usamos el nombre de la clase como string para evitar problemas
+        // de classloader con la clase interna SecurityRealm$None.
+        def currentRealmClass = instance.getSecurityRealm().getClass().getName()
+        println "Security realm actual: ${currentRealmClass}"
+
+        if (currentRealmClass.contains("None")) {
+            println "Configurando security realm (HudsonPrivateSecurityRealm)..."
+            def hudsonRealm = new HudsonPrivateSecurityRealm(false)
+            hudsonRealm.createAccount("admin", "admin123")
+            instance.setSecurityRealm(hudsonRealm)
+
+            def strategy = new FullControlOnceLoggedInAuthorizationStrategy()
+            strategy.setAllowAnonymousRead(false)
+            instance.setAuthorizationStrategy(strategy)
+            instance.save()
+            println "Usuario admin y security realm configurados."
+        } else {
+            println "Security realm ya configurado — verificando usuario admin..."
+            try {
+                def realm = instance.getSecurityRealm()
+                if (realm instanceof HudsonPrivateSecurityRealm) {
+                    if (realm.getAllUsers().find { it.getId() == "admin" } == null) {
+                        realm.createAccount("admin", "admin123")
+                        instance.save()
+                        println "Usuario admin creado."
+                    } else {
+                        println "Usuario admin ya existe."
+                    }
+                }
+            } catch (Exception e) {
+                println "No se pudo verificar/crear admin: ${e.getMessage()}"
+            }
+        }

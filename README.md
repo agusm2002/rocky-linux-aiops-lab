@@ -29,7 +29,7 @@
 - [x] **Fase 3**: Secrets Management — HashiCorp Vault
 - [x] **Fase 4**: K3s + Stack de Observabilidad
 - [x] **Fase 5**: Workflows de Automatización con n8n
-- [ ] **Fase 6**: CI/CD — Jenkins Self-Hosted en k3s
+- [x] **Fase 6**: CI/CD — Jenkins Self-Hosted en k3s
 - [ ] **Fase 7**: GitOps con ArgoCD
 - [ ] **Fase 8**: Seguridad para Producción (fail2ban + dnf-automatic + NSG)
 - [ ] **Fase 9**: Migración a Oracle Cloud Free Tier
@@ -135,16 +135,16 @@ rocky-linux-aiops-lab/
 │   │   ├── workflows/                 # Workflows limpios (sin secrets)
 │   │   └── workflows-local/           # Workflows con credenciales (gitignoreado)
 │   └── vault/
-│       ├── serviceaccount.yml         # SA para Vault server
-│       ├── configmap.yml              # Config de producción (referencia)
-│       ├── deployment.yml             # Vault server (modo dev)
-│       ├── service.yml                # Servicio ClusterIP :8200
-│       ├── injector-serviceaccount.yml # SA + RBAC para el Injector
-│       ├── injector-deployment.yml     # Vault Agent Injector
-│       ├── injector-service.yml        # Servicio para el webhook
-│       ├── mutating-webhook.yml        # Webhook de mutación de pods
-│       ├── config-job.yml              # Job de configuración (auth, policies, secrets)
-│       └── setup-vault.sh              # Script de despliegue automatizado
+│       ├── ...
+│       ├── setup-vault.sh
+│   └── jenkins/
+│       ├── deployment.yml
+│       ├── service.yml
+│       ├── pvc.yml
+│       ├── rbac.yml
+│       ├── serviceaccount.yml
+│       └── configmap.yml
+├── Jenkinsfile
 └── docs/
 ```
 
@@ -405,6 +405,7 @@ kubectl apply -f k3s/manifests/n8n/
 | n8n | n8nio/n8n:2.22.2 | 5678 | Orquestación de workflows |
 | Vault | hashicorp/vault:1.16.2 | 8200 | Gestión de secrets cifrados (dev mode) |
 | Vault Injector | hashicorp/vault-k8s:1.4.2 | 443 | Webhook de inyección de secrets en pods |
+| Jenkins | jenkins/jenkins:2.492.3-lts | 8080 | CI/CD self-hosted con agentes dinámicos |
 
 ## Fase 5 — Workflows de Automatización con n8n ✅
 
@@ -503,6 +504,79 @@ Para simular un crash real (el flujo completo):
 - **Límite de 2000 caracteres en Discord**: el análisis del LLM puede ser muy extenso. Solución: truncar a 1900 chars en los Code nodes que arman el mensaje.
 - **IF node type mismatch**: `boolean` en el IF node no matchea correctamente contra expresiones que evalúan a boolean desde un Code node. Solución: retornar `hasFailures` como string (`'true'/'false'`) y usar comparación `string equals true`.
 
+## Fase 6 — CI/CD con Jenkins Self-Hosted ✅
+
+### Resumen
+
+Jenkins self-hosted corriendo como pod en el cluster k3s, con agentes dinámicos que se crean y destruyen por cada build. Complementa GitHub Actions del Proyecto 1, demostrando conocimiento de CI/CD tanto managed como self-hosted.
+
+### Arquitectura
+
+```mermaid
+graph LR
+    A[GitHub Push] -->|webhook| B[Jenkins Pod]
+    B -->|crea pod efímero| C[Agent Pod]
+    C -->|stage 1| D[yamllint]
+    C -->|stage 2| E[ansible-lint]
+    C -->|stage 3| F[tofu validate]
+    C -->|stage 4| G[kubectl --dry-run]
+    B -->|métricas| H[Prometheus]
+    H --> I[Grafana]
+    B -->|fallo| J[n8n webhook]
+```
+
+### Componentes desplegados
+
+| Componente | Descripción |
+|---|---|
+| **Jenkins Deployment** | 1 réplica, imagen `jenkins/jenkins:2.492.3-lts`, PVC 5Gi |
+| **Init Container** | Instala plugins: kubernetes, workflow-aggregator, git, github, ansicolor, prometheus |
+| **Init Script (Groovy)** | Configura security realm y crea usuario admin automáticamente |
+| **Service NodePort** | UI en `30580`, JNLP en `30500` |
+| **RBAC (Role)** | Permisos sobre pods, pods/exec, pods/log en namespace aiops |
+| **Prometheus scrape** | `/prometheus` en `jenkins.aiops.svc.cluster.local:8080` |
+
+### Diferencias clave: Jenkins vs GitHub Actions
+
+| | GitHub Actions | Jenkins |
+|---|---|---|
+| Hosting | Managed por GitHub | Self-hosted, vos lo gestionás |
+| Configuración | YAML en `.github/workflows/` | `Jenkinsfile` en el repo |
+| Visibilidad | Solo en GitHub | Dashboard propio |
+| Runners | Efímeros, managed | Pods dinámicos en el cluster |
+| Dónde vive | Nube de GitHub | Pod en tu cluster |
+
+### Pipeline (`Jenkinsfile`)
+
+El pipeline definido en `Jenkinsfile` ejecuta 4 stages en agentes dinámicos:
+
+1. **Lint YAML** — `yamllint` sobre `k3s/manifests/`
+2. **Lint Ansible** — `ansible-lint` sobre `ansible/playbooks/` y `ansible/roles/`
+3. **Validate OpenTofu** — `tofu validate` sobre `tofu/`
+4. **Validate K8s Manifests** — `kubectl --dry-run=client` sobre todos los YAML
+
+En caso de fallo, el bloque `post { failure }` envía un webhook a n8n para respuesta automática.
+
+### Acceso
+
+- **URL**: `http://<host>:30580`
+- **Usuario**: `admin`
+- **Password**: `admin123`
+- **Métricas Prometheus**: `http://<host>:30580/prometheus`
+
+### Archivos creados
+
+```
+k3s/manifests/jenkins/
+├── deployment.yml
+├── service.yml
+├── pvc.yml
+├── rbac.yml
+├── serviceaccount.yml
+└── configmap.yml
+Jenkinsfile
+```
+
 ## Lecciones Aprendidas
 
 ### n8n
@@ -510,6 +584,11 @@ Para simular un crash real (el flujo completo):
 - **`$env` en headers de HTTP Request no funciona en 2.22.2**: es necesario hardcodear o usar Code nodes intermedios como proxy de variables de entorno.
 - **El CLI `import:workflow` tiene bugs con ciertos formatos JSON**: siempre importar desde la UI para garantizar integridad del workflow.
 - **Vault Agent Injector es confiable**: las variables inyectadas aparecen correctamente en `/proc/<pid>/environ` del proceso n8n, pero el sandbox del task runner no las hereda.
+
+### Jenkins
+- **El init container de plugins es mas confiable que install-plugins.sh en caliente**: al ejecutar jenkins-plugin-cli antes de que Jenkins arranque, los plugins estan disponibles desde el primer inicio.
+- **-Djenkins.install.runSetupWizard=false deshabilita tambien la creacion del admin**: Jenkins arranca con SecurityRealm$None. Es necesario un script init.groovy.d que configure HudsonPrivateSecurityRealm y cree el usuario administrador.
+- **El Groovy sandbox tiene restricciones de classloader**: no se pueden referenciar clases internas como SecurityRealm$None directamente. Usar comparacion por nombre de clase como workaround.
 
 ### General
 - **SQLite + PVC es suficiente para lab single-node**: no requiere PostgreSQL ni Redis para queue mode si solo hay 1 réplica.

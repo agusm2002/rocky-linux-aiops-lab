@@ -1,0 +1,24 @@
+# PersistentVolumeClaim para Jenkins — almacena la configuración de Jenkins,
+# jobs, plugins, credenciales y el histórico de builds en /var/jenkins_home.
+#
+# Sin este PVC, al reiniciar el pod Jenkins pierde toda su configuración:
+# plugins, jobs configurados, credenciales (API keys, tokens) y el historial
+# de builds.  Con el PVC, todo persiste entre reinicios del pod.
+#
+# Tamaño: 5Gi es suficiente para un lab con pocos jobs.  En producción
+# con pipelines frecuentes, el histórico de builds puede crecer rápido
+# y requerir más espacio o una política de rotación de builds.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+    name: jenkins-pvc
+    namespace: aiops
+    labels:
+        app: jenkins
+        app.kubernetes.io/part-of: aiops-lab
+spec:
+    accessModes:
+        - ReadWriteOnce
+    resources:
+        requests:
+            storage: 5Gi

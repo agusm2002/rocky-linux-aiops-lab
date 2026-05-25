@@ -1,0 +1,54 @@
+# RBAC para Jenkins — permisos para crear pods de agente dinámicos
+#
+# Propósito: Jenkins necesita permisos sobre pods, pods/exec y pods/log
+# para que el plugin de Kubernetes pueda:
+#   1. Crear un pod efímero por cada build (create, get, list, watch)
+#   2. Eliminarlo cuando el build termina (delete)
+#   3. Ejecutar comandos dentro del pod (pods/exec)
+#   4. Leer logs del build en tiempo real (pods/log)
+#
+# Alcance: permisos dentro del namespace aiops únicamente (Role, no ClusterRole).
+# Los pods de agente se crean en el mismo namespace donde corre Jenkins.
+# No necesita permisos a nivel cluster porque los builds son locales al lab.
+#
+# Principio de mínimo privilegio: solo los verbos necesarios para la operación
+# del plugin de Kubernetes.  No hay acceso a secrets, configmaps, deployments
+# ni otros recursos del namespace.
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+    name: jenkins-agent-manager
+    namespace: aiops
+    labels:
+        app: jenkins
+        app.kubernetes.io/part-of: aiops-lab
+rules:
+    - apiGroups: [""]
+      resources: ["pods"]
+      verbs: ["create", "get", "list", "watch", "delete"]
+    - apiGroups: [""]
+      resources: ["pods/exec"]
+      verbs: ["create"]
+    - apiGroups: [""]
+      resources: ["pods/log"]
+      verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+    name: jenkins-agent-manager-binding
+    namespace: aiops
+    labels:
+        app: jenkins
+        app.kubernetes.io/part-of: aiops-lab
+subjects:
+    - kind: ServiceAccount
+      name: jenkins
+      namespace: aiops
+roleRef:
+    kind: Role
+    name: jenkins-agent-manager
+    apiGroup: rbac.authorization.k8s.io
