@@ -102,6 +102,19 @@ data:
               - targets:
                   - "alertmanager:9093"
 
+          # -----------------------------------------------------------------
+          # 6. Jenkins — métricas del servidor CI/CD (builds ejecutados,
+          #    duración de pipelines, tasa de fallos, estado de agentes).
+          #    Jenkins expone métricas en /prometheus gracias al plugin
+          #    "Prometheus Metrics".  Esto permite monitorear la salud
+          #    del pipeline de CI/CD desde Grafana.
+          # -----------------------------------------------------------------
+          - job_name: "jenkins"
+            static_configs:
+              - targets:
+                  - "jenkins.aiops.svc.cluster.local:8080"
+            metrics_path: /prometheus
+
     # -----------------------------------------------------------------------
     # alert_rules.yml — reglas de alerta evaluadas por Prometheus cada 15s.
     # Cuando una expresión PromQL evalúa a true, Prometheus crea una alerta

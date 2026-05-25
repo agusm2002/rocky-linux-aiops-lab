@@ -1,0 +1,51 @@
+# RBAC para Jenkins — permisos para crear pods de agente dinamicos
+#
+# Proposito: Jenkins necesita permisos sobre pods, pods/exec, pods/log
+# y pods/portforward para que el plugin de Kubernetes pueda:
+#   1. Crear un pod efimero por cada build (create, get, list, watch)
+#   2. Eliminarlo cuando el build termina (delete)
+#   3. Ejecutar comandos dentro del pod (pods/exec)
+#   4. Leer logs del build en tiempo real (pods/log)
+#   5. Forward de puertos para WebSocket (pods/portforward)
+#
+# Se usa ClusterRole (no Role) porque el plugin de Kubernetes necesita
+# permisos a nivel cluster para establecer conexiones WebSocket con
+# los pods de agente.  Con un Role simple, la API de Kubernetes
+# devuelve 403 al intentar el handshake WebSocket.
+#
+# Principio de minimo privilegio: solo los verbos necesarios para la
+# operacion del plugin de Kubernetes.
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+    name: jenkins-agent-manager
+    labels:
+        app: jenkins
+        app.kubernetes.io/part-of: aiops-lab
+rules:
+    - apiGroups: [""]
+      resources:
+          ["pods", "pods/log", "pods/exec", "pods/portforward", "pods/attach"]
+      verbs: ["create", "get", "list", "watch", "delete", "patch", "update"]
+    - apiGroups: [""]
+      resources: ["events", "services", "configmaps"]
+      verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+    name: jenkins-agent-manager-binding
+    labels:
+        app: jenkins
+        app.kubernetes.io/part-of: aiops-lab
+subjects:
+    - kind: ServiceAccount
+      name: jenkins
+      namespace: aiops
+roleRef:
+    kind: ClusterRole
+    name: jenkins-agent-manager
+    apiGroup: rbac.authorization.k8s.io

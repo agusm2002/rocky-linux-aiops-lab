@@ -1,0 +1,32 @@
+# Service de Jenkins — expone la UI web y el puerto de agentes JNLP.
+#
+# El puerto 8080 sirve la interfaz web de Jenkins.  El puerto 50000 es
+# el endpoint JNLP (Java Network Launch Protocol) que usan los agentes
+# para conectarse al master.  El plugin de Kubernetes de Jenkins no usa
+# JNLP directamente (se comunica vía API de Kubernetes para crear pods),
+# pero el puerto 50000 se mantiene por compatibilidad con agentes externos.
+#
+# NodePort permite acceder desde el navegador del host sin necesidad de
+# un Ingress Controller configurado.  En producción se cambiaría por un
+# Ingress con TLS y autenticación.
+apiVersion: v1
+kind: Service
+metadata:
+    name: jenkins
+    namespace: aiops
+    labels:
+        app: jenkins
+        app.kubernetes.io/part-of: aiops-lab
+spec:
+    type: NodePort
+    selector:
+        app: jenkins
+    ports:
+        - name: http
+          port: 8080
+          targetPort: 8080
+          nodePort: 30580
+        - name: jnlp
+          port: 50000
+          targetPort: 50000
+          nodePort: 30500

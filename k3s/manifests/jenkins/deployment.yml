@@ -1,0 +1,149 @@
+# Deployment de Jenkins — CI/CD self-hosted en el cluster
+#
+# Jenkins se despliega como Deployment con 1 réplica porque no está diseñado
+# para alta disponibilidad a nivel de aplicación.  El estado (jobs, plugins,
+# credenciales) se guarda en /var/jenkins_home montado desde un PVC.
+#
+# El contenedor se ejecuta como usuario no-root (UID 1000 = jenkins) por
+# seguridad: si el proceso se ve comprometido, el atacante obtiene un
+# usuario sin privilegios.
+#
+# ── Agentes dinámicos (Kubernetes plugin) ──
+#
+# En lugar de agentes estáticos (VMs fijas), Jenkins usa el plugin de
+# Kubernetes para crear un pod efímero por cada build.  El flujo es:
+#   1. Un webhook de GitHub dispara el pipeline
+#   2. Jenkins crea un Pod en el namespace aiops usando el ServiceAccount 'jenkins'
+#   3. El contenedor del agente ejecuta los stages definidos en el Jenkinsfile
+#   4. Al terminar el build (éxito o falla), Jenkins elimina el pod
+#
+# Este patrón escala mejor que agentes estáticos porque:
+#   - No hay VMs ociosas esperando builds
+#   - Cada build corre en un entorno limpio e idéntico
+#   - El número de builds concurrentes solo está limitado por los recursos del nodo
+#
+# ── Plugin installation ──
+#
+# Los plugins se instalan mediante un init container que ejecuta
+# jenkins-plugin-cli antes de que Jenkins arranque.  Esto descarga
+# los plugins al PVC compartido (/var/jenkins_home/plugins) para que
+# Jenkins los encuentre al iniciar.  El wizard inicial se deshabilita
+# con -Djenkins.install.runSetupWizard=false en JAVA_OPTS.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+    name: jenkins
+    namespace: aiops
+    labels:
+        app: jenkins
+        app.kubernetes.io/part-of: aiops-lab
+spec:
+    replicas: 1
+    selector:
+        matchLabels:
+            app: jenkins
+    template:
+        metadata:
+            labels:
+                app: jenkins
+        spec:
+            serviceAccountName: jenkins
+            securityContext:
+                runAsUser: 1000
+                runAsNonRoot: true
+                fsGroup: 1000
+            # ── Init Container: instalación de plugins ──
+            # Antes de que Jenkins arranque, descargamos los plugins necesarios
+            # usando jenkins-plugin-cli (incluido en la imagen oficial).
+            # Esto garantiza que los plugins estén listos desde el primer arranque
+            # sin dependencia del update center en caliente, que puede fallar
+            # si Jenkins arranca sin conectividad o con timeouts.
+            #
+            # Plugins instalados:
+            #   - kubernetes: agentes dinámicos como pods
+            #   - workflow-aggregator: pipeline as code (Jenkinsfile)
+            #   - git: clonar repositorios desde GitHub
+            #   - github: integración con GitHub (webhooks, status checks)
+            #   - ansicolor: colores en la salida de consola
+            #   - prometheus: expone métricas en /prometheus
+            #   - blueocean: UI moderna opcional (mejora la experiencia visual)
+            initContainers:
+                - name: install-plugins
+                  image: jenkins/jenkins:2.492.3-lts
+                  command:
+                      - /bin/sh
+                      - -c
+                      - |
+                          jenkins-plugin-cli \
+                            --plugin-download-directory /var/jenkins_home/plugins \
+                            --plugins \
+                              kubernetes \
+                              workflow-aggregator \
+                              git \
+                              github \
+                              ansicolor \
+                              prometheus
+                  volumeMounts:
+                      - name: jenkins-home
+                        mountPath: /var/jenkins_home
+            containers:
+                - name: jenkins
+                  image: jenkins/jenkins:2.492.3-lts
+                  ports:
+                      - name: http
+                        containerPort: 8080
+                      - name: jnlp
+                        containerPort: 50000
+                  env:
+                      # Deshabilitar el wizard de setup inicial — Jenkins arranca
+                      # listo para usar sin intervención manual.  Los plugins
+                      # ya fueron instalados por el init container.
+                      - name: JAVA_OPTS
+                        value: >-
+                            -Djenkins.install.runSetupWizard=false
+                  volumeMounts:
+                      - name: jenkins-home
+                        mountPath: /var/jenkins_home
+                      # ── Scripts de inicialización Groovy ──
+                      # Montados en /var/jenkins_home/init.groovy.d/.
+                      # Jenkins ejecuta todos los archivos .groovy en este
+                      # directorio durante la fase de inicialización.
+                      # Se usa para crear el usuario admin automáticamente
+                      # cuando el setup wizard está deshabilitado.
+                      - name: init-scripts
+                        mountPath: /var/jenkins_home/init.groovy.d
+                  resources:
+                      requests:
+                          memory: "512Mi"
+                          cpu: "200m"
+                      limits:
+                          memory: "1Gi"
+                          cpu: "1000m"
+                  # ── Probes ──
+                  # readiness: responde 200 cuando Jenkins terminó de cargar
+                  # todos los plugins y está listo para recibir requests.
+                  readinessProbe:
+                      httpGet:
+                          path: /login
+                          port: 8080
+                      initialDelaySeconds: 60
+                      periodSeconds: 10
+                      failureThreshold: 10
+                  # liveness: si Jenkins deja de responder, kubelet lo reinicia.
+                  livenessProbe:
+                      httpGet:
+                          path: /login
+                          port: 8080
+                      initialDelaySeconds: 90
+                      periodSeconds: 15
+                      failureThreshold: 5
+            volumes:
+                - name: jenkins-home
+                  persistentVolumeClaim:
+                      claimName: jenkins-pvc
+                # ConfigMap con scripts de init.groovy.d — Jenkins ejecuta
+                # automáticamente los archivos .groovy al iniciar.
+                - name: init-scripts
+                  configMap:
+                      name: jenkins-init-scripts
