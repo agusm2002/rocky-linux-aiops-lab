@@ -121,7 +121,7 @@ pipeline {
                     sh '''
                         for file in $(find k3s/manifests/ -name "*.yml" -o -name "*.yaml"); do
                             echo "Validating: $file"
-                            kubectl --dry-run=client apply -f "$file" 2>&1 | grep -v "WARN\|memcache\|metrics" || true
+                            kubectl --dry-run=client apply -f "$file" 2>&1 | grep -v WARN | grep -v memcache | grep -v metrics || true
                         done
                     '''
                 }
