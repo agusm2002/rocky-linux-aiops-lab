@@ -1,0 +1,72 @@
+/**
+ * Jenkinsfile-simple — Pipeline CI/CD simplificado
+ *
+ * Corre en el master en lugar de usar agentes dinamicos de Kubernetes.
+ * Util para validar que el pipeline funciona mientras se depura la
+ * configuracion de agentes dinamicos.
+ */
+pipeline {
+    agent any  // Ejecuta en el master directamente
+
+    environment {
+        NAMESPACE = 'aiops'
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                echo "Pipeline iniciado - Build #${BUILD_NUMBER}"
+                echo "Branch: ${BRANCH_NAME}"
+            }
+        }
+
+        stage('Lint YAML') {
+            steps {
+                sh '''
+                    echo "Instalando yamllint..."
+                    pip3 install --quiet yamllint 2>/dev/null || pip install --quiet yamllint
+                    echo "Ejecutando yamllint..."
+                    yamllint k3s/manifests/ -d relaxed || true
+                '''
+            }
+        }
+
+        stage('Lint Ansible') {
+            steps {
+                sh '''
+                    echo "Instalando ansible-lint..."
+                    pip3 install --quiet ansible-lint 2>/dev/null || pip install --quiet ansible-lint
+                    echo "Ejecutando ansible-lint..."
+                    ansible-lint ansible/playbooks/ ansible/roles/ || true
+                '''
+            }
+        }
+
+        stage('Validate K8s Manifests') {
+            steps {
+                sh '''
+                    echo "Validando manifests de Kubernetes..."
+                    for file in $(find k3s/manifests/ -name "*.yml" -o -name "*.yaml"); do
+                        echo "  -> $file"
+                        kubectl --dry-run=client apply -f "$file" || echo "  WARNING: $file tiene errores"
+                    done
+                '''
+            }
+        }
+    }
+
+    post {
+        failure {
+            echo "Pipeline fallo - notificando a n8n..."
+            sh '''
+                curl -X POST http://n8n.aiops.svc.cluster.local:5678/webhook/jenkins-failure \
+                    -H "Content-Type: application/json" \
+                    -d "{\\"build\\": \\"${BUILD_NUMBER}\\", \\"job\\": \\"${JOB_NAME}\\"}" \
+                    || true
+            '''
+        }
+        success {
+            echo "Pipeline completado exitosamente!"
+        }
+    }
+}
