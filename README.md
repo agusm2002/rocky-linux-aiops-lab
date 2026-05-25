@@ -1,6 +1,6 @@
 # rocky-linux-aiops-lab
 
-> Self-hosted ITOps automation platform on Rocky Linux: n8n orchestrating incident response workflows triggered by Prometheus alerts and Loki log patterns, with LLM analysis via OpenCode Go API — deployed on k3s, provisioned with Ansible, secrets managed with HashiCorp Vault, and infrastructure defined as code with OpenTofu.
+> Self-hosted ITOps automation platform on Rocky Linux — from local k3s lab to Oracle Cloud Free Tier. n8n orchestrates incident response with LLM analysis via OpenCode Go, deployed with Ansible + OpenTofu, secrets managed with HashiCorp Vault, CI/CD with Jenkins + GitOps with ArgoCD, and production hardening for OCI.
 
 ## Stack Tecnológico
 
@@ -17,7 +17,10 @@
 | Dashboards | Grafana | Métricas, logs y ejecuciones de n8n |
 | Automatización | n8n | Orquestador de workflows de ITOps |
 | LLM | OpenCode Go API | Endpoint compatible OpenAI, modelos DeepSeek/Kimi/Qwen |
-| CI/CD | GitHub Actions | Lint y validación de YAML, Ansible y OpenTofu |
+| CI/CD | Jenkins (k3s) + GitHub Actions | Jenkins self-hosted para pipelines, GitHub Actions para lint y CI |
+| GitOps | ArgoCD | Sync automático de manifiestos desde GitHub a k3s |
+| Cloud | Oracle Cloud Free Tier | 4 vCPUs ARM, 24 GB RAM, $0/mes |
+| SRE | SLO/SLI + fail2ban + dnf-automatic | Confiabilidad medida, hardening de producción |
 
 ## Estado del Proyecto
 
@@ -26,7 +29,11 @@
 - [x] **Fase 3**: Secrets Management — HashiCorp Vault
 - [x] **Fase 4**: K3s + Stack de Observabilidad
 - [x] **Fase 5**: Workflows de Automatización con n8n
-- [ ] **Fase 6**: CI/CD y Documentación Final
+- [ ] **Fase 6**: CI/CD — Jenkins Self-Hosted en k3s
+- [ ] **Fase 7**: GitOps con ArgoCD
+- [ ] **Fase 8**: Seguridad para Producción (fail2ban + dnf-automatic + NSG)
+- [ ] **Fase 9**: Migración a Oracle Cloud Free Tier
+- [ ] **Fase 10**: SLO/SLI + Documentación Final + Demo grabada
 
 > **Nota:** La Fase 3 (Vault) se ejecuta después de la Fase 4 porque Vault se despliega dentro de k3s. El README marca la Fase 4 como completada antes que la 3 por esta dependencia lógica.
 
