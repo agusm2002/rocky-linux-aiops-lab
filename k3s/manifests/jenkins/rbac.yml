@@ -1,46 +1,43 @@
-# RBAC para Jenkins — permisos para crear pods de agente dinámicos
+# RBAC para Jenkins — permisos para crear pods de agente dinamicos
 #
-# Propósito: Jenkins necesita permisos sobre pods, pods/exec y pods/log
-# para que el plugin de Kubernetes pueda:
-#   1. Crear un pod efímero por cada build (create, get, list, watch)
+# Proposito: Jenkins necesita permisos sobre pods, pods/exec, pods/log
+# y pods/portforward para que el plugin de Kubernetes pueda:
+#   1. Crear un pod efimero por cada build (create, get, list, watch)
 #   2. Eliminarlo cuando el build termina (delete)
 #   3. Ejecutar comandos dentro del pod (pods/exec)
 #   4. Leer logs del build en tiempo real (pods/log)
+#   5. Forward de puertos para WebSocket (pods/portforward)
 #
-# Alcance: permisos dentro del namespace aiops únicamente (Role, no ClusterRole).
-# Los pods de agente se crean en el mismo namespace donde corre Jenkins.
-# No necesita permisos a nivel cluster porque los builds son locales al lab.
+# Se usa ClusterRole (no Role) porque el plugin de Kubernetes necesita
+# permisos a nivel cluster para establecer conexiones WebSocket con
+# los pods de agente.  Con un Role simple, la API de Kubernetes
+# devuelve 403 al intentar el handshake WebSocket.
 #
-# Principio de mínimo privilegio: solo los verbos necesarios para la operación
-# del plugin de Kubernetes.  No hay acceso a secrets, configmaps, deployments
-# ni otros recursos del namespace.
+# Principio de minimo privilegio: solo los verbos necesarios para la
+# operacion del plugin de Kubernetes.
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
+kind: ClusterRole
 metadata:
     name: jenkins-agent-manager
-    namespace: aiops
     labels:
         app: jenkins
         app.kubernetes.io/part-of: aiops-lab
 rules:
     - apiGroups: [""]
-      resources: ["pods"]
-      verbs: ["create", "get", "list", "watch", "delete"]
+      resources:
+          ["pods", "pods/log", "pods/exec", "pods/portforward", "pods/attach"]
+      verbs: ["create", "get", "list", "watch", "delete", "patch", "update"]
     - apiGroups: [""]
-      resources: ["pods/exec"]
-      verbs: ["create"]
-    - apiGroups: [""]
-      resources: ["pods/log"]
+      resources: ["events", "services", "configmaps"]
       verbs: ["get", "list", "watch"]
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
+kind: ClusterRoleBinding
 metadata:
     name: jenkins-agent-manager-binding
-    namespace: aiops
     labels:
         app: jenkins
         app.kubernetes.io/part-of: aiops-lab
@@ -49,6 +46,6 @@ subjects:
       name: jenkins
       namespace: aiops
 roleRef:
-    kind: Role
+    kind: ClusterRole
     name: jenkins-agent-manager
     apiGroup: rbac.authorization.k8s.io
