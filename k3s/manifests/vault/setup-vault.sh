@@ -76,7 +76,8 @@ EOF
 openssl req -new \
   -key "$TEMP_DIR/tls.key" \
   -out "$TEMP_DIR/tls.csr" \
-  -config "$TEMP_DIR/san.cnf" 2>/dev/null
+  -config "$TEMP_DIR/san.cnf" \
+  -subj "/CN=vault-agent-injector" 2>/dev/null
 
 # Firmar el certificado del servidor con la CA
 openssl x509 -req \

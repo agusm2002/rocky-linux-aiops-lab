@@ -35,25 +35,6 @@ metadata:
     namespace: aiops
     labels:
         app: n8n
-    annotations:
-        # --- Annotations de Vault Agent Injector ---
-        # Habilitar la inyección de Vault Agent en este pod
-        vault.hashicorp.com/agent-inject: "true"
-        # Rol de Vault que autoriza a este pod a leer secrets
-        # Vinculado al ServiceAccount 'n8n' en el namespace 'aiops'
-        vault.hashicorp.com/role: "n8n"
-        # Secret a inyectar: path en Vault (kv-v2: secret/data/n8n)
-        vault.hashicorp.com/agent-inject-secret-n8n-env: "secret/data/n8n"
-        # Template que genera un archivo con formato shell export.
-        # n8n no soporta el patrón __FILE como Grafana, por lo que
-        # generamos un archivo exportable que el command sourcea
-        # antes de arrancar n8n.
-        vault.hashicorp.com/agent-inject-template-n8n-env: |
-            {{- with secret "secret/data/n8n" -}}
-            export N8N_ENCRYPTION_KEY="{{ .Data.data.encryption_key }}"
-            {{- end }}
-        # Solo usar el init container, no sidecar (los secrets no cambian en runtime)
-        vault.hashicorp.com/agent-pre-populate-only: "true"
 spec:
     replicas: 1
     selector:
@@ -63,8 +44,39 @@ spec:
         metadata:
             labels:
                 app: n8n
-            # Las annotations de Vault se leen del spec.metadata.annotations
-            # del Deployment, las cuales el Injector detecta al crear el pod.
+            # --- Annotations de Vault Agent Injector ---
+            # El webhook mutante del Vault Agent Injector lee estas
+            # annotations del Pod (no del Deployment) para decidir
+            # qué secrets inyectar y con qué templates.
+            annotations:
+                # Habilitar la inyección de Vault Agent en este pod
+                vault.hashicorp.com/agent-inject: "true"
+                # Rol de Vault que autoriza a este pod a leer secrets
+                # Vinculado al ServiceAccount 'n8n' en el namespace 'aiops'
+                vault.hashicorp.com/role: "n8n"
+                # Secret a inyectar: path en Vault (kv-v2: secret/data/n8n)
+                vault.hashicorp.com/agent-inject-secret-n8n-env: "secret/data/n8n"
+                # Template que genera un archivo con formato shell export.
+                # n8n no soporta el patrón __FILE como Grafana, por lo que
+                # generamos un archivo exportable que el command sourcea
+                # antes de arrancar n8n.
+                vault.hashicorp.com/agent-inject-template-n8n-env: |
+                    {{- with secret "secret/data/n8n" -}}
+                    export N8N_ENCRYPTION_KEY="{{ .Data.data.encryption_key }}"
+                    {{- end }}
+                # --- Segundo secret: credenciales externas (OpenCode Go + Discord) ---
+                # Estas credenciales se usan en los workflows de la Fase 5.
+                # Se inyectan como un archivo separado para mantener el ciclo de vida
+                # independiente: la encryption key es generada por Vault, mientras que
+                # las credenciales externas las provee el usuario.
+                vault.hashicorp.com/agent-inject-secret-n8n-credentials: "secret/data/n8n/credentials"
+                vault.hashicorp.com/agent-inject-template-n8n-credentials: |
+                    {{- with secret "secret/data/n8n/credentials" -}}
+                    export N8N_OPENCODE_API_KEY="{{ .Data.data.opencode_api_key }}"
+                    export N8N_DISCORD_WEBHOOK_URL="{{ .Data.data.discord_webhook_url }}"
+                    {{- end }}
+                # Solo usar el init container, no sidecar (los secrets no cambian en runtime)
+                vault.hashicorp.com/agent-pre-populate-only: "true"
         spec:
             serviceAccountName: n8n # ServiceAccount vinculado al rol de Vault
             securityContext:
@@ -84,6 +96,9 @@ spec:
                           # Sourcear las variables inyectadas por Vault Agent
                           if [ -f /vault/secrets/n8n-env ]; then
                             . /vault/secrets/n8n-env
+                          fi
+                          if [ -f /vault/secrets/n8n-credentials ]; then
+                            . /vault/secrets/n8n-credentials
                           fi
                           # Arrancar n8n con las variables de entorno disponibles
                           n8n start

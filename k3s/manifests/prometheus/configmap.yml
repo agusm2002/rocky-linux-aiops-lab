@@ -89,7 +89,7 @@ data:
           - job_name: "n8n"
             static_configs:
               - targets:
-                  - "n8n.aiops:5678"
+                  - "n8n.aiops.svc.cluster.local:5678"
             metrics_path: /metrics
 
           # -----------------------------------------------------------------

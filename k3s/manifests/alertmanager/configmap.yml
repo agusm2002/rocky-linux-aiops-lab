@@ -14,49 +14,49 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: alertmanager-config
-  namespace: aiops
-  labels:
-    app.kubernetes.io/name: alertmanager
-    app.kubernetes.io/part-of: aiops-lab
+    name: alertmanager-config
+    namespace: aiops
+    labels:
+        app.kubernetes.io/name: alertmanager
+        app.kubernetes.io/part-of: aiops-lab
 data:
-  alertmanager.yml: |
-    # Configuración global de rutas y receptores de Alertmanager.
-    global:
-      # Tiempo que espera antes de enviar notificación de una alerta que se resolvió
-      # pero nunca fue notificada. Evita notificar alertas fugaces.
-      resolve_timeout: 5m
+    alertmanager.yml: |
+        # Configuración global de rutas y receptores de Alertmanager.
+        global:
+            # Tiempo que espera antes de enviar notificación de una alerta que se resolvió
+            # pero nunca fue notificada. Evita notificar alertas fugaces.
+            resolve_timeout: 5m
 
-    # Definición de rutas — cómo se agrupan y enrutan las alertas.
-    route:
-      # group_by: agrupa alertas con el mismo alertname en una sola notificación.
-      # Ejemplo: si 3 instancias disparan HighCPU, n8n recibe un solo webhook con 3 alertas.
-      group_by: ["alertname"]
+        # Definición de rutas — cómo se agrupan y enrutan las alertas.
+        route:
+            # group_by: agrupa alertas con el mismo alertname en una sola notificación.
+            # Ejemplo: si 3 instancias disparan HighCPU, n8n recibe un solo webhook con 3 alertas.
+            group_by: ["alertname"]
 
-      # group_wait: cuánto espera antes de enviar la primera notificación de un grupo nuevo.
-      # 30s da tiempo a que lleguen más alertas del mismo grupo antes de notificar.
-      group_wait: 30s
+            # group_wait: cuánto espera antes de enviar la primera notificación de un grupo nuevo.
+            # 30s da tiempo a que lleguen más alertas del mismo grupo antes de notificar.
+            group_wait: 30s
 
-      # group_interval: tiempo mínimo entre notificaciones de un grupo existente.
-      # Si ya se notificó un grupo, no vuelve a notificar hasta 5 minutos después.
-      group_interval: 5m
+            # group_interval: tiempo mínimo entre notificaciones de un grupo existente.
+            # Si ya se notificó un grupo, no vuelve a notificar hasta 5 minutos después.
+            group_interval: 5m
 
-      # repeat_interval: si una alerta sigue activa, re-notifica cada 4 horas.
-      # Previene spam mientras avisa que el problema persiste.
-      repeat_interval: 4h
+            # repeat_interval: si una alerta sigue activa, re-notifica cada 4 horas.
+            # Previene spam mientras avisa que el problema persiste.
+            repeat_interval: 4h
 
-      # receptor por defecto — todas las alertas van a n8n-webhook.
-      receiver: n8n-webhook
+            # receptor por defecto — todas las alertas van a n8n-webhook.
+            receiver: n8n-webhook
 
-    # Receptores — destinos de las notificaciones.
-    receivers:
-      - name: n8n-webhook
-        webhook_configs:
-          # URL del webhook de n8n — n8n expone este endpoint cuando se crea
-          # un workflow con trigger "Webhook". El path /webhook/alertmanager
-          # es una convención del proyecto; el workflow en n8n debe escuchar en este path.
-          - url: "http://n8n.aiops:5678/webhook/alertmanager"
-            # send_resolved: envía también notificaciones cuando la alerta se resuelve.
-            # Esto permite que n8n ejecute workflows de "recuperación" (ej. cerrar ticket,
-            # notificar que el servicio volvió a estar operativo).
-            send_resolved: true
+        # Receptores — destinos de las notificaciones.
+        receivers:
+            - name: n8n-webhook
+              webhook_configs:
+                  # URL del webhook de n8n — n8n expone este endpoint cuando se crea
+                  # un workflow con trigger "Webhook". El path /webhook/alertmanager
+                  # es una convención del proyecto; el workflow en n8n debe escuchar en este path.
+                  - url: "http://n8n.aiops.svc.cluster.local:5678/webhook/alertmanager"
+                    # send_resolved: envía también notificaciones cuando la alerta se resuelve.
+                    # Esto permite que n8n ejecute workflows de "recuperación" (ej. cerrar ticket,
+                    # notificar que el servicio volvió a estar operativo).
+                    send_resolved: true
