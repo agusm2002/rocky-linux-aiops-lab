@@ -1,0 +1,21 @@
+---
+# Rol: dnf-automatic
+# Aplica automáticamente actualizaciones de seguridad en el SO
+# Documentado en Fase 8: Seguridad para Producción
+
+- name: Install dnf-automatic
+  dnf:
+    name: dnf-automatic
+    state: present
+
+- name: Configure security-only updates
+  lineinfile:
+    path: /etc/dnf/automatic.conf
+    regexp: '^upgrade_type'
+    line: 'upgrade_type = security'
+
+- name: Enable automatic timer
+  systemd:
+    name: dnf-automatic.timer
+    state: started
+    enabled: true

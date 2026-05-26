@@ -10,6 +10,8 @@
       - firewalld
       - selinux
       - ssh-hardening
+      - fail2ban
+      - dnf-automatic
 
 # Vault Agent a nivel del SO — se ejecuta después del hardening base.
 # Instala el agente de Vault como servicio de systemd para que los
