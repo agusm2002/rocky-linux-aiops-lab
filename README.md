@@ -665,6 +665,98 @@ k3s/manifests/argocd/
 └── ingress.yml        # Ingress para acceso vía argocd.local
 ```
 
+## Fase 8 — Seguridad para Producción ✅
+
+### Resumen
+
+Hardening del SO con fail2ban (protección anti fuerza bruta SSH) y dnf-automatic (actualizaciones automáticas de seguridad). Definición de Network Security Groups en OCI con principio de least-privilege para cuando el lab migre a Oracle Cloud (Fase 9).
+
+### Rol `fail2ban`
+
+Protege SSH contra ataques de fuerza bruta. Configura un jail que banea IPs después de 5 intentos fallidos en 10 minutos, con un baneo de 1 hora.
+
+```bash
+# Verificar después del deploy
+fail2ban-client status sshd
+```
+
+Archivos:
+- `ansible/roles/fail2ban/tasks/main.yml`
+
+### Rol `dnf-automatic`
+
+Aplica automáticamente actualizaciones de seguridad del SO (no todas las actualizaciones, solo las marcadas como security por Red Hat/Rocky). El timer de systemd las ejecuta diariamente.
+
+```bash
+# Verificar que el timer está activo
+systemctl status dnf-automatic.timer
+
+# Ver última ejecución
+systemctl list-timers dnf-automatic.timer
+```
+
+Archivos:
+- `ansible/roles/dnf-automatic/tasks/main.yml`
+
+### Network Security Groups — OCI (OpenTofu)
+
+NSGs definidos como IaC para garantizar que solo los puertos necesarios estén expuestos. El modelo de seguridad sigue el principio de least-privilege:
+
+| Puerto | VM | Origen | Servicio |
+|---|---|---|---|
+| 22 | vm-bastion | Solo tu IP (`admin_cidr`) | SSH entrada |
+| 22 | vm-k3s | Solo IP privada del bastion | SSH desde bastion |
+| 80 | vm-k3s | 0.0.0.0/0 | Redirect a HTTPS |
+| 443 | vm-k3s | 0.0.0.0/0 | Grafana demo pública |
+| 6443 | vm-k3s | Solo IP privada del bastion | k3s API |
+| 30000-32767 | vm-k3s | Solo IP privada del bastion | NodePorts administrativos |
+| Todo lo demás | Ambas VMs | Bloqueado | — |
+
+```bash
+# Aplicar NSGs (requiere OCI credentials)
+cd tofu/oracle
+tofu init
+tofu plan -var "admin_cidr=TU_IP/32"
+tofu apply
+```
+
+Archivos:
+- `tofu/oracle/main.tf` — definición de NSGs y reglas
+- `tofu/oracle/variables.tf` — variables de OCI
+- `tofu/oracle/outputs.tf` — outputs con OCIDs de los NSGs
+
+### Playbook actualizado
+
+`ansible/playbooks/site.yml` ahora incluye los roles `fail2ban` y `dnf-automatic` en la sección de hardening:
+
+```bash
+ansible-playbook -i inventory/hosts.yml playbooks/site.yml
+```
+
+### Decisiones de seguridad documentadas
+
+1. **Fail2ban en SSH**: primera línea de defensa contra ataques de diccionario. No reemplaza key-based auth, lo complementa.
+2. **dnf-automatic security-only**: balance entre mantener el SO actualizado y no romper compatibilidad con updates no críticos. Solo se aplican parches de seguridad.
+3. **NSG least-privilege**: la VM de k3s solo expone 80/443 a internet. Todo acceso administrativo (SSH, k3s API, NodePorts) pasa por el bastion.
+4. **Bastion como single point of entry**: SSH a las VMs de workloads nunca es directo desde internet. El bastion es el único punto de entrada, y su acceso SSH está restringido a una IP específica.
+5. **OCI Cloud Guard**: activado desde la consola (gratis en Free Tier) como capa adicional de detección de misconfiguraciones y amenazas.
+
+### Archivos creados
+
+```
+ansible/roles/fail2ban/tasks/main.yml
+ansible/roles/dnf-automatic/tasks/main.yml
+tofu/oracle/main.tf
+tofu/oracle/variables.tf
+tofu/oracle/outputs.tf
+```
+
+### Archivos modificados
+
+```
+ansible/playbooks/site.yml    # Agregados roles fail2ban y dnf-automatic
+```
+
 ## Lecciones Aprendidas
 
 ### n8n
