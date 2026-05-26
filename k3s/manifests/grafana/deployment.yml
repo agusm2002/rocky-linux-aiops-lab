@@ -32,25 +32,6 @@ metadata:
     namespace: aiops # Namespace del laboratorio AIOps
     labels:
         app: grafana # Etiqueta principal para selector y service
-    annotations:
-        # --- Annotations de Vault Agent Injector ---
-        # Habilitar la inyección de Vault Agent en este pod
-        vault.hashicorp.com/agent-inject: "true"
-        # Rol de Vault que autoriza a este pod a leer secrets
-        # Vinculado al ServiceAccount 'grafana' en el namespace 'aiops'
-        vault.hashicorp.com/role: "grafana"
-        # Secret a inyectar: path en Vault (kv-v2: secret/data/grafana)
-        vault.hashicorp.com/agent-inject-secret-admin-password: "secret/data/grafana"
-        # Template que define cómo se renderiza el archivo inyectado
-        # {{- with secret "secret/data/grafana" }} obtiene el secret de Vault
-        # {{ .Data.data.admin_password }} extrae el campo admin_password
-        # El archivo se escribe en /vault/secrets/admin-password
-        vault.hashicorp.com/agent-inject-template-admin-password: |
-            {{- with secret "secret/data/grafana" -}}
-            {{ .Data.data.admin_password }}
-            {{- end }}
-        # Solo usar el init container, no sidecar (los secrets no cambian en runtime)
-        vault.hashicorp.com/agent-pre-populate-only: "true"
 spec:
     replicas: 1 # Una sola réplica — suficiente para k3s single-node
     selector:
@@ -60,8 +41,25 @@ spec:
         metadata:
             labels:
                 app: grafana
-            # Las annotations de Vault se heredan del spec.metadata.annotations
-            # El Injector las lee del pod template
+            annotations:
+                # --- Annotations de Vault Agent Injector ---
+                # Habilitar la inyección de Vault Agent en este pod
+                vault.hashicorp.com/agent-inject: "true"
+                # Rol de Vault que autoriza a este pod a leer secrets
+                # Vinculado al ServiceAccount 'grafana' en el namespace 'aiops'
+                vault.hashicorp.com/role: "grafana"
+                # Secret a inyectar: path en Vault (kv-v2: secret/data/grafana)
+                vault.hashicorp.com/agent-inject-secret-admin-password: "secret/data/grafana"
+                # Template que define cómo se renderiza el archivo inyectado
+                # {{- with secret "secret/data/grafana" }} obtiene el secret de Vault
+                # {{ .Data.data.admin_password }} extrae el campo admin_password
+                # El archivo se escribe en /vault/secrets/admin-password
+                vault.hashicorp.com/agent-inject-template-admin-password: |
+                    {{- with secret "secret/data/grafana" -}}
+                    {{ .Data.data.admin_password }}
+                    {{- end }}
+                # Solo usar el init container, no sidecar (los secrets no cambian en runtime)
+                vault.hashicorp.com/agent-pre-populate-only: "true"
         spec:
             serviceAccountName: grafana # ServiceAccount vinculado al rol de Vault
             securityContext:
