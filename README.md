@@ -31,7 +31,7 @@
 - [x] **Fase 5**: Workflows de Automatización con n8n
 - [x] **Fase 6**: CI/CD — Jenkins Self-Hosted en k3s
 - [x] **Fase 7**: GitOps con ArgoCD
-- [ ] **Fase 8**: Seguridad para Producción (fail2ban + dnf-automatic + NSG)
+- [x] **Fase 8**: Seguridad para Producción (fail2ban + dnf-automatic + NSG)
 - [ ] **Fase 9**: Migración a Oracle Cloud Free Tier
 - [ ] **Fase 10**: SLO/SLI + Documentación Final + Demo grabada
 
