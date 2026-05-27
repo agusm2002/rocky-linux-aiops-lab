@@ -133,28 +133,28 @@ pipeline {
     post {
         failure {
             node('built-in') {
-                sh '''
+                sh """
                     echo "Pipeline FAILED — notificando n8n + Discord..."
                     curl -X POST http://n8n.aiops.svc.cluster.local:5678/webhook/jenkins-failure \
                         -H "Content-Type: application/json" \
-                        -d "{\\"build\\": \\"${BUILD_NUMBER}\\", \\"job\\": \\"${JOB_NAME}\\"}" \
+                        -d '{"build": "${BUILD_NUMBER}", "job": "${JOB_NAME}"}' \
                         || true
                     curl -X POST ${DISCORD_WEBHOOK_URL} \
                         -H "Content-Type: application/json" \
-                        -d "{\\"content\\": \\"❌ Pipeline FAILED — commit ${GIT_COMMIT[0..7]}\\"}" \
+                        -d '{"content": "❌ Pipeline FAILED — commit ${GIT_COMMIT.take(7)}"}' \
                         || true
-                '''
+                """
             }
         }
         success {
             node('built-in') {
-                sh '''
+                sh """
                     echo "Pipeline OK — notificando Discord..."
                     curl -X POST ${DISCORD_WEBHOOK_URL} \
                         -H "Content-Type: application/json" \
-                        -d "{\\"content\\": \\"✅ Pipeline OK — commit ${GIT_COMMIT[0..7]}\\"}" \
+                        -d '{"content": "✅ Pipeline OK — commit ${GIT_COMMIT.take(7)}"}' \
                         || true
-                '''
+                """
             }
         }
     }
