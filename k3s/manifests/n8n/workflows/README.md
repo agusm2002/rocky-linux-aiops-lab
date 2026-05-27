@@ -1,4 +1,4 @@
-# Workflows de n8n — Fase 5
+# Workflows de n8n — Fase 5 + Fase 7.5
 
 ## Archivos
 
@@ -8,6 +8,9 @@
 | `incident-response.json` | Workflow 1: recibe webhooks de Alertmanager, analiza la alerta con LLM y notifica Discord. | 4 |
 | `log-analysis.json` | Workflow 2: cada hora consulta Loki, resume logs de error con LLM y envía reporte a Discord. | 5 |
 | `health-check.json` | Workflow 3: cada 5 minutos consulta la API de K8s, filtra pods fallidos, analiza con LLM y notifica Discord (o loguea "all healthy" a Loki). | 8 |
+| `daily-health-report.json` | **Workflow 4**: cada día a las 8am consulta Prometheus (disponibilidad, memoria, pods) y envía reporte a Discord. Sin LLM — lógica pura. | 6 |
+| `pod-restart-detector.json` | **Workflow 6**: cada 15 min detecta pods con >3 reinicios en 1h (via kube-state-metrics). Si no hay problemas, no notifica — diseño de silencio inteligente. | 5 |
+| `argocd-sync-monitor.json` | **Workflow 7**: cada 30 min consulta la API de ArgoCD y alerta si hay aplicaciones fuera de sync. Conecta el monitoreo con GitOps. | 6 |
 
 ## Importar en n8n
 
