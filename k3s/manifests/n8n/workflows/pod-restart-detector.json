@@ -1,0 +1,124 @@
+{
+    "name": "Pod Restart Detector",
+    "nodes": [
+        {
+            "parameters": {
+                "mode": "custom",
+                "cronExpression": "*/15 * * * *"
+            },
+            "id": "p0d-r3st4rt-tr1gg3r-001",
+            "name": "Every 15 minutes",
+            "type": "n8n-nodes-base.scheduleTrigger",
+            "typeVersion": 1,
+            "position": [250, 300]
+        },
+        {
+            "parameters": {
+                "method": "GET",
+                "url": "http://prometheus.aiops:9090/api/v1/query",
+                "sendQuery": true,
+                "queryParameters": {
+                    "parameters": [
+                        {
+                            "name": "query",
+                            "value": "increase(kube_pod_container_status_restarts_total{namespace=\"aiops\"}[1h]) > 3"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "id": "p0d-r3st4rt-pr0m-002",
+            "name": "Query Restart Rate",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.1,
+            "position": [450, 300]
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": true,
+                        "leftValue": "",
+                        "typeValidation": "strict"
+                    },
+                    "conditions": [
+                        {
+                            "id": "p0d-r3st4rt-1f-c0nd-001",
+                            "leftValue": "={{ $json.data.result.length }}",
+                            "rightValue": 0,
+                            "operator": {
+                                "type": "number",
+                                "operation": "larger"
+                            }
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "id": "p0d-r3st4rt-1f-003",
+            "name": "Any excessive restarts?",
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 2,
+            "position": [650, 300]
+        },
+        {
+            "parameters": {
+                "jsCode": "const results = $('Query Restart Rate').first().json.data.result;\n\nconst pods = results.map(r => {\n  const pod = r.metric.pod || 'unknown';\n  const restarts = parseFloat(r.value[1]).toFixed(0);\n  return `• ${pod}: ${restarts} reinicios en la última hora`;\n}).join('\\n');\n\nconst count = results.length;\nconst message = `⚠️ *Pods con reinicios excesivos (>3 en 1h)*\\n` +\n  `Se detectaron ${count} pods problemáticos:\\n\\n${pods}\\n\\n` +\n  `🕐 ${new Date().toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' })}`;\n\nreturn [{\n  json: {\n    body: JSON.stringify({ content: message }),\n    podCount: count\n  }\n}];"
+            },
+            "id": "p0d-r3st4rt-c0d3-004",
+            "name": "Format Alert",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [850, 200]
+        },
+        {
+            "parameters": {
+                "method": "POST",
+                "url": "https://discord.com/api/webhooks/DISCORD_WEBHOOK_ID/DISCORD_WEBHOOK_TOKEN",
+                "sendBody": true,
+                "contentType": "json",
+                "specifyBody": "json",
+                "jsonBody": "={{ JSON.parse($json.body) }}"
+            },
+            "id": "p0d-r3st4rt-d1sc0rd-005",
+            "name": "Notify Discord",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.1,
+            "position": [1050, 200]
+        }
+    ],
+    "connections": {
+        "Every 15 minutes": {
+            "main": [
+                [
+                    { "node": "Query Restart Rate", "type": "main", "index": 0 }
+                ]
+            ]
+        },
+        "Query Restart Rate": {
+            "main": [
+                [
+                    { "node": "Any excessive restarts?", "type": "main", "index": 0 }
+                ]
+            ]
+        },
+        "Any excessive restarts?": {
+            "main": [
+                [
+                    { "node": "Format Alert", "type": "main", "index": 0 }
+                ],
+                []
+            ]
+        },
+        "Format Alert": {
+            "main": [
+                [
+                    { "node": "Notify Discord", "type": "main", "index": 0 }
+                ]
+            ]
+        }
+    },
+    "settings": {
+        "executionOrder": "v1"
+    }
+}

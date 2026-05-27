@@ -61,25 +61,15 @@ data:
                   - "node-exporter.aiops:9100"
 
           # -----------------------------------------------------------------
-          # 3. k3s kubelet metrics — métricas de cAdvisor del kubelet.
-          #    k3s expone métricas de contenedores en /metrics/cadvisor del kubelet.
-          #    Usamos kubernetes_sd_configs con role "node" para descubrir los nodos
-          #    automáticamente en lugar de hardcodear IPs.
-          #    Requiere autenticación con ServiceAccount token y TLS con
-          #    insecure_skip_verify porque k3s usa certificados auto-firmados.
+          # 3. kube-state-metrics — métricas de estado de objetos de Kubernetes
+          #    (pods, deployments, replicasets, etc.). Expone métricas como
+          #    kube_pod_status_phase que alimentan paneles de estado y alertas.
+          #    No requiere acceso al kubelet — consulta la API de Kubernetes.
           # -----------------------------------------------------------------
-          - job_name: "k3s-kubelet"
-            scheme: https
-            metrics_path: /metrics/cadvisor
-            kubernetes_sd_configs:
-              - role: node
-            tls_config:
-              # k3s genera certificados auto-firmados; sin esto Prometheus rechaza la conexión.
-              insecure_skip_verify: true
-            authorization:
-              # El token del ServiceAccount montado automáticamente en el pod.
-              # Permite a Prometheus autenticarse contra el kubelet.
-              credentials_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+          - job_name: "kube-state-metrics"
+            static_configs:
+              - targets:
+                  - "kube-state-metrics.aiops.svc.cluster.local:8080"
 
           # -----------------------------------------------------------------
           # 4. n8n — expone métricas de workflows (ejecuciones, fallos, latencia).
@@ -115,23 +105,125 @@ data:
                   - "jenkins.aiops.svc.cluster.local:8080"
             metrics_path: /prometheus
 
+          # -----------------------------------------------------------------
+          # 7. Grafana — métricas del servidor de dashboards.
+          #    Se usa para medir SLO de disponibilidad de la UI del stack.
+          #    La métrica up{job="grafana"} alimenta la alerta GrafanaSLOBreach
+          #    y los paneles de disponibilidad en el dashboard.
+          # -----------------------------------------------------------------
+          - job_name: "grafana"
+            static_configs:
+              - targets:
+                  - "grafana.aiops.svc.cluster.local:3000"
+
     # -----------------------------------------------------------------------
     # alert_rules.yml — reglas de alerta evaluadas por Prometheus cada 15s.
     # Cuando una expresión PromQL evalúa a true, Prometheus crea una alerta
     # y la envía a Alertmanager para que aplique routing y notificación.
+    #
+    # Cada alerta tiene un label severity (critical o warning). Alertmanager
+    # usa este label para hacer routing diferenciado: las alertas critical
+    # se notifican con group_wait=10s (respuesta rápida), mientras que las
+    # warning esperan 30s antes de agrupar (evitan ruido por picos transitorios).
     # -----------------------------------------------------------------------
     alert_rules.yml: |
         groups:
           # -----------------------------------------------------------------
-          # Grupo: recursos del host
-          # Contiene reglas que monitorean CPU y disco del nodo Rocky Linux.
+          # Grupo: aiops.rules — reglas de alerta del AIOps Lab.
+          # Cada regla está conectada a al menos otra capa del stack:
+          #   - Las alertas disparan webhooks de Alertmanager hacia n8n.
+          #   - Las annotations alimentan el dashboard de Grafana.
+          #   - Las métricas de SLO miden la confiabilidad real del sistema.
           # -----------------------------------------------------------------
-          - name: host_resources
+          - name: aiops.rules
             rules:
-              # Uso de CPU por encima del 80% durante 5 minutos continuos.
-              # Sección importante: for=5m evita falsas alertas por picos momentáneos
-              # (ej. un cron job que sube la CPU por 30 segundos no dispara la alerta).
-              # severity: warning — no es crítico pero merece atención.
+
+              # -----------------------------------------------------------------
+              # 1. Pod en CrashLoopBackOff — el pod reinicia repetidamente.
+              #    rate() sobre 5m suaviza reinicios momentáneos de rolling updates.
+              #    severity: critical — un pod que no arranca es pérdida de servicio.
+              # -----------------------------------------------------------------
+              - alert: PodCrashLooping
+                expr: |
+                  rate(kube_pod_container_status_restarts_total{namespace="aiops"}[5m]) > 0
+                for: 2m
+                labels:
+                  severity: critical
+                annotations:
+                  summary: "Pod {{ $labels.pod }} está en CrashLoopBackOff"
+                  description: "El pod {{ $labels.pod }} reinició {{ $value | printf \"%.0f\" }} veces en los últimos 5 minutos."
+
+              # -----------------------------------------------------------------
+              # 2. Memoria del cluster por encima del 85%.
+              #    Usa métricas del node_exporter (MemTotal - MemAvailable).
+              #    severity: warning — el nodo todavía funciona pero está al límite.
+              # -----------------------------------------------------------------
+              - alert: HighMemoryUsage
+                expr: |
+                  (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes)
+                  / node_memory_MemTotal_bytes * 100 > 85
+                for: 5m
+                labels:
+                  severity: warning
+                annotations:
+                  summary: "Memoria del nodo por encima del 85%"
+                  description: "Uso actual: {{ $value | printf \"%.1f\" }}%"
+
+              # -----------------------------------------------------------------
+              # 3. Espacio en disco por encima del 80% de uso.
+              #    Monitorea la partición raíz (/) que es donde k3s guarda
+              #    imágenes de contenedores, volúmenes y logs.
+              #    for=10m: el disco no se llena instantáneamente; 10 minutos
+              #    evitan falsos positivos por escrituras transitorias de logs.
+              #    severity: warning — un disco lleno degrada el cluster entero.
+              # -----------------------------------------------------------------
+              - alert: DiskSpaceLow
+                expr: |
+                  (node_filesystem_size_bytes{mountpoint="/"} - node_filesystem_free_bytes{mountpoint="/"})
+                  / node_filesystem_size_bytes{mountpoint="/"} * 100 > 80
+                for: 10m
+                labels:
+                  severity: warning
+                annotations:
+                  summary: "Espacio en disco bajo"
+                  description: "Disco raíz al {{ $value | printf \"%.1f\" }}% de capacidad."
+
+              # -----------------------------------------------------------------
+              # 4. n8n no responde — el orquestador de automatización caído.
+              #    Si n8n no responde, ninguna alerta va a ser procesada
+              #    automáticamente. Esto es un single point of failure del stack.
+              #    severity: critical — requiere atención inmediata.
+              # -----------------------------------------------------------------
+              - alert: N8nDown
+                expr: up{job="n8n"} == 0
+                for: 1m
+                labels:
+                  severity: critical
+                annotations:
+                  summary: "n8n no responde"
+                  description: "El servicio de n8n lleva más de 1 minuto sin responder al scrape."
+
+              # -----------------------------------------------------------------
+              # 5. SLO de Grafana incumplido — disponibilidad < 99.9% en la última hora.
+              #    avg_over_time() calcula el promedio de up en una ventana móvil.
+              #    < 0.999 significa más de ~3.6 segundos de downtime en una hora.
+              #    severity: critical — la UI de observabilidad debe estar siempre disponible.
+              # -----------------------------------------------------------------
+              - alert: GrafanaSLOBreach
+                expr: |
+                  avg_over_time(up{job="grafana"}[1h]) < 0.999
+                labels:
+                  severity: critical
+                annotations:
+                  summary: "SLO de Grafana incumplido"
+                  description: "Disponibilidad en la última hora: {{ $value | printf \"%.3f\" }}. SLO objetivo: 99.9%"
+
+              # -----------------------------------------------------------------
+              # 6. CPU del nodo por encima del 80% durante 5 minutos.
+              #    for=5m evita falsas alertas por picos momentáneos (ej. un cron
+              #    job que sube la CPU por 30 segundos no dispara la alerta).
+              #    severity: warning — no es crítico pero merece atención.
+              # -----------------------------------------------------------------
               - alert: HighCPU
                 expr: 100 - (avg by(instance)(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
                 for: 5m
@@ -139,30 +231,15 @@ data:
                   severity: warning
                 annotations:
                   summary: "CPU alta en {{ $labels.instance }}"
-                  description: "El uso de CPU es mayor al 80% hace más de 5 minutos (valor actual: {{ $value }}%)."
+                  description: "El uso de CPU es mayor al 80% hace más de 5 minutos (valor actual: {{ $value | printf \"%.1f\" }}%)."
 
-              # Espacio en disco disponible por debajo del 20%.
-              # monitora la partición raíz (/) que es donde k3s guarda datos de contenedores.
-              # severity: warning — en un disco lleno los pods pueden fallar al escribir.
-              - alert: DiskSpaceLow
-                expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100 < 20
-                for: 5m
-                labels:
-                  severity: warning
-                annotations:
-                  summary: "Poco espacio en disco en {{ $labels.instance }}"
-                  description: "Queda menos del 20% de espacio en / (valor actual: {{ $value }}%)."
-
-          # -----------------------------------------------------------------
-          # Grupo: disponibilidad de servicios
-          # Detecta cuando un servicio deja de responder al scraping.
-          # up==0 significa que el último scrape falló (el target no respondió).
-          # -----------------------------------------------------------------
-          - name: service_availability
-            rules:
-              # Un servicio (exporter, app) no responde al scrape durante 2 minutos.
-              # severity: critical — si un servicio cae, perdemos visibilidad y
-              # la cadena de observabilidad se rompe. n8n debe reaccionar rápido.
+              # -----------------------------------------------------------------
+              # 7. Servicio caído (genérico) — cualquier target deja de responder.
+              #    up==0 significa que el último scrape falló. Complementa las
+              #    alertas específicas (N8nDown, GrafanaSLOBreach) cubriendo
+              #    cualquier servicio no contemplado explícitamente.
+              #    severity: critical — pérdida de visibilidad o funcionalidad.
+              # -----------------------------------------------------------------
               - alert: ServiceDown
                 expr: up == 0
                 for: 2m

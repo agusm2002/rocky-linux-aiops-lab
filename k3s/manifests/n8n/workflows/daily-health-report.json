@@ -1,0 +1,130 @@
+{
+    "name": "Daily Health Report",
+    "nodes": [
+        {
+            "parameters": {
+                "mode": "custom",
+                "cronExpression": "0 8 * * *"
+            },
+            "id": "da1ly-h34lth-tr1gg3r-001",
+            "name": "8:00 AM Schedule",
+            "type": "n8n-nodes-base.scheduleTrigger",
+            "typeVersion": 1,
+            "position": [250, 300]
+        },
+        {
+            "parameters": {
+                "method": "GET",
+                "url": "http://prometheus.aiops:9090/api/v1/query",
+                "sendQuery": true,
+                "queryParameters": {
+                    "parameters": [
+                        {
+                            "name": "query",
+                            "value": "avg(avg_over_time(up[24h])) * 100"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "id": "da1ly-h34lth-prom-avail-002",
+            "name": "Query Availability",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.1,
+            "position": [450, 300]
+        },
+        {
+            "parameters": {
+                "method": "GET",
+                "url": "http://prometheus.aiops:9090/api/v1/query",
+                "sendQuery": true,
+                "queryParameters": {
+                    "parameters": [
+                        {
+                            "name": "query",
+                            "value": "(node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "id": "da1ly-h34lth-prom-mem-003",
+            "name": "Query Memory",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.1,
+            "position": [650, 300]
+        },
+        {
+            "parameters": {
+                "method": "GET",
+                "url": "http://prometheus.aiops:9090/api/v1/query",
+                "sendQuery": true,
+                "queryParameters": {
+                    "parameters": [
+                        {
+                            "name": "query",
+                            "value": "count(kube_pod_status_phase{namespace=\"aiops\", phase=\"Running\"})"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "id": "da1ly-h34lth-prom-pods-004",
+            "name": "Query Running Pods",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.1,
+            "position": [850, 300]
+        },
+        {
+            "parameters": {
+                "jsCode": "const availItem = $('Query Availability').first();\nconst memItem = $('Query Memory').first();\nconst podsItem = $('Query Running Pods').first();\n\nconst disponibilidad = availItem ? parseFloat(availItem.json.data.result[0]?.value[1] || 0) : 0;\nconst memoria = memItem ? parseFloat(memItem.json.data.result[0]?.value[1] || 0) : 0;\nconst pods = podsItem ? parseInt(podsItem.json.data.result[0]?.value[1] || 0) : 0;\n\nconst emoji = disponibilidad > 99.9 ? '🟢' : disponibilidad > 99 ? '🟡' : '🔴';\nconst now = new Date().toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' });\n\nconst message = `${emoji} *Daily Health Report — AIOps Lab*\\n\\n` +\n  `📊 Disponibilidad 24h: ${disponibilidad.toFixed(2)}%\\n` +\n  `💾 Uso de memoria: ${memoria.toFixed(1)}%\\n` +\n  `🚀 Pods corriendo: ${pods}\\n` +\n  `🕐 ${now}`;\n\nreturn [{\n  json: {\n    disponibilidad: disponibilidad,\n    memoria: memoria,\n    pods: pods,\n    body: JSON.stringify({ content: message })\n  }\n}];"
+            },
+            "id": "da1ly-h34lth-c0d3-005",
+            "name": "Format Daily Report",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [1050, 300]
+        },
+        {
+            "parameters": {
+                "method": "POST",
+                "url": "https://discord.com/api/webhooks/DISCORD_WEBHOOK_ID/DISCORD_WEBHOOK_TOKEN",
+                "sendBody": true,
+                "contentType": "json",
+                "specifyBody": "json",
+                "jsonBody": "={{ JSON.parse($json.body) }}"
+            },
+            "id": "da1ly-h34lth-d1sc0rd-006",
+            "name": "Notify Discord",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.1,
+            "position": [1250, 300]
+        }
+    ],
+    "connections": {
+        "8:00 AM Schedule": {
+            "main": [
+                [{ "node": "Query Availability", "type": "main", "index": 0 }]
+            ]
+        },
+        "Query Availability": {
+            "main": [[{ "node": "Query Memory", "type": "main", "index": 0 }]]
+        },
+        "Query Memory": {
+            "main": [
+                [{ "node": "Query Running Pods", "type": "main", "index": 0 }]
+            ]
+        },
+        "Query Running Pods": {
+            "main": [
+                [{ "node": "Format Daily Report", "type": "main", "index": 0 }]
+            ]
+        },
+        "Format Daily Report": {
+            "main": [[{ "node": "Notify Discord", "type": "main", "index": 0 }]]
+        }
+    },
+    "settings": {
+        "executionOrder": "v1"
+    }
+}

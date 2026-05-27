@@ -28,25 +28,51 @@ data:
             resolve_timeout: 5m
 
         # Definición de rutas — cómo se agrupan y enrutan las alertas.
+        #
+        # Estrategia de routing por severidad:
+        #   - critical: group_wait=10s, renotifica cada 1h. Respuesta rápida porque
+        #     son incidentes que requieren acción inmediata (pod caído, servicio down).
+        #   - warning: group_wait=30s (default). Más tolerantes porque son condiciones
+        #     que se pueden degradar pero no son outages (CPU alta, memoria al límite).
+        #
+        # Ambas severidades llegan al mismo webhook de n8n, pero n8n puede
+        # diferenciarlas por el label severity en el payload JSON de Alertmanager
+        # y ejecutar workflows distintos según criticidad.
         route:
-            # group_by: agrupa alertas con el mismo alertname en una sola notificación.
-            # Ejemplo: si 3 instancias disparan HighCPU, n8n recibe un solo webhook con 3 alertas.
-            group_by: ["alertname"]
+            # group_by: agrupa alertas con el mismo alertname y severity.
+            # Incluir severity en el group_by evita que alertas warning y critical
+            # del mismo nombre se mezclen en una sola notificación.
+            group_by: ["alertname", "severity"]
 
-            # group_wait: cuánto espera antes de enviar la primera notificación de un grupo nuevo.
-            # 30s da tiempo a que lleguen más alertas del mismo grupo antes de notificar.
+            # Valores por defecto (aplican a rutas que no los sobrescriben).
             group_wait: 30s
-
-            # group_interval: tiempo mínimo entre notificaciones de un grupo existente.
-            # Si ya se notificó un grupo, no vuelve a notificar hasta 5 minutos después.
             group_interval: 5m
-
-            # repeat_interval: si una alerta sigue activa, re-notifica cada 4 horas.
-            # Previene spam mientras avisa que el problema persiste.
             repeat_interval: 4h
 
-            # receptor por defecto — todas las alertas van a n8n-webhook.
+            # Receptor por defecto.
             receiver: n8n-webhook
+
+            # Sub-rutas: Alertmanager evalúa en orden y aplica la primera que
+            # coincide. Las alertas con severity=critical toman la ruta rápida.
+            routes:
+                # Ruta para alertas críticas — menor latencia de notificación.
+                # group_wait=10s: solo espera 10 segundos para agrupar antes de
+                # enviar el primer webhook. En un incidente real, 10s vs 30s
+                # puede ser la diferencia entre respuesta automática inmediata
+                # y un minuto de downtime evitable.
+                - match:
+                    severity: critical
+                  group_wait: 10s
+                  group_interval: 2m
+                  repeat_interval: 1h
+                  receiver: n8n-webhook
+
+                # Ruta para alertas warning — usa los defaults (30s, 5m, 4h).
+                # No se sobrescribe nada; solo se declara para que sea explícito
+                # en la configuración qué severidad sigue qué camino.
+                - match:
+                    severity: warning
+                  receiver: n8n-webhook
 
         # Receptores — destinos de las notificaciones.
         receivers:

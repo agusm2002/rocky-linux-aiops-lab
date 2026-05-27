@@ -1,0 +1,150 @@
+{
+    "name": "ArgoCD Sync Monitor",
+    "nodes": [
+        {
+            "parameters": {
+                "mode": "custom",
+                "cronExpression": "*/30 * * * *"
+            },
+            "id": "arg0cd-sync-tr1gg3r-001",
+            "name": "Every 30 minutes",
+            "type": "n8n-nodes-base.scheduleTrigger",
+            "typeVersion": 1,
+            "position": [250, 300]
+        },
+        {
+            "parameters": {
+                "method": "POST",
+                "url": "http://argocd-server.argocd.svc.cluster.local/api/v1/session",
+                "sendBody": true,
+                "contentType": "json",
+                "specifyBody": "json",
+                "jsonBody": "{\"username\": \"admin\", \"password\": \"ARGOCD_ADMIN_PASSWORD\"}",
+                "options": {}
+            },
+            "id": "arg0cd-sync-auth-002",
+            "name": "Authenticate ArgoCD",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.1,
+            "position": [450, 300]
+        },
+        {
+            "parameters": {
+                "method": "GET",
+                "url": "http://argocd-server.argocd.svc.cluster.local/api/v1/applications",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "Authorization",
+                            "value": "=Bearer {{ $('Authenticate ArgoCD').first().json.token }}"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "id": "arg0cd-sync-api-003",
+            "name": "Query ArgoCD API",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.1,
+            "position": [650, 300]
+        },
+        {
+            "parameters": {
+                "jsCode": "const apps = $input.all()[0].json.items || [];\n\nconst outOfSync = apps.filter(app => {\n  const syncStatus = app.status?.sync?.status;\n  return syncStatus && syncStatus !== 'Synced';\n});\n\nreturn outOfSync.map(app => ({\n  json: {\n    name: app.metadata.name,\n    sync: app.status?.sync?.status || 'Unknown',\n    health: app.status?.health?.status || 'Unknown'\n  }\n}));"
+            },
+            "id": "arg0cd-sync-c0d3-004",
+            "name": "Filter Out of Sync",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [850, 300]
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": true,
+                        "leftValue": "",
+                        "typeValidation": "strict"
+                    },
+                    "conditions": [
+                        {
+                            "id": "arg0cd-sync-1f-c0nd-001",
+                            "leftValue": "={{ $json.name }}",
+                            "rightValue": "",
+                            "operator": {
+                                "type": "string",
+                                "operation": "isNotEmpty"
+                            }
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "id": "arg0cd-sync-1f-005",
+            "name": "Apps out of sync?",
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 2,
+            "position": [1050, 300]
+        },
+        {
+            "parameters": {
+                "jsCode": "const items = $('Filter Out of Sync').all();\n\nconst appList = items.map(i => {\n  const j = i.json;\n  return `• *${j.name}* | Sync: ${j.sync} | Health: ${j.health}`;\n}).join('\\n');\n\nconst count = items.length;\nconst message = `🔄 *ArgoCD — Apps fuera de sync*\\n` +\n  `${count} aplicación(es) con drift detectado:\\n\\n${appList}\\n\\n` +\n  `🕐 ${new Date().toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' })}`;\n\nreturn [{\n  json: {\n    body: JSON.stringify({ content: message }),\n    outOfSyncCount: count\n  }\n}];"
+            },
+            "id": "arg0cd-sync-c0d3-006",
+            "name": "Format Alert",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [1250, 200]
+        },
+        {
+            "parameters": {
+                "method": "POST",
+                "url": "https://discord.com/api/webhooks/DISCORD_WEBHOOK_ID/DISCORD_WEBHOOK_TOKEN",
+                "sendBody": true,
+                "contentType": "json",
+                "specifyBody": "json",
+                "jsonBody": "={{ JSON.parse($json.body) }}"
+            },
+            "id": "arg0cd-sync-d1sc0rd-007",
+            "name": "Notify Discord",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.1,
+            "position": [1450, 200]
+        }
+    ],
+    "connections": {
+        "Every 30 minutes": {
+            "main": [
+                [{ "node": "Authenticate ArgoCD", "type": "main", "index": 0 }]
+            ]
+        },
+        "Authenticate ArgoCD": {
+            "main": [
+                [{ "node": "Query ArgoCD API", "type": "main", "index": 0 }]
+            ]
+        },
+        "Query ArgoCD API": {
+            "main": [
+                [{ "node": "Filter Out of Sync", "type": "main", "index": 0 }]
+            ]
+        },
+        "Filter Out of Sync": {
+            "main": [
+                [{ "node": "Apps out of sync?", "type": "main", "index": 0 }]
+            ]
+        },
+        "Apps out of sync?": {
+            "main": [
+                [{ "node": "Format Alert", "type": "main", "index": 0 }],
+                []
+            ]
+        },
+        "Format Alert": {
+            "main": [[{ "node": "Notify Discord", "type": "main", "index": 0 }]]
+        }
+    },
+    "settings": {
+        "executionOrder": "v1"
+    }
+}
