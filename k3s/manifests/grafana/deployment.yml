@@ -41,25 +41,7 @@ spec:
         metadata:
             labels:
                 app: grafana
-            annotations:
-                # --- Annotations de Vault Agent Injector ---
-                # Habilitar la inyección de Vault Agent en este pod
-                vault.hashicorp.com/agent-inject: "true"
-                # Rol de Vault que autoriza a este pod a leer secrets
-                # Vinculado al ServiceAccount 'grafana' en el namespace 'aiops'
-                vault.hashicorp.com/role: "grafana"
-                # Secret a inyectar: path en Vault (kv-v2: secret/data/grafana)
-                vault.hashicorp.com/agent-inject-secret-admin-password: "secret/data/grafana"
-                # Template que define cómo se renderiza el archivo inyectado
-                # {{- with secret "secret/data/grafana" }} obtiene el secret de Vault
-                # {{ .Data.data.admin_password }} extrae el campo admin_password
-                # El archivo se escribe en /vault/secrets/admin-password
-                vault.hashicorp.com/agent-inject-template-admin-password: |
-                    {{- with secret "secret/data/grafana" -}}
-                    {{ .Data.data.admin_password }}
-                    {{- end }}
-                # Solo usar el init container, no sidecar (los secrets no cambian en runtime)
-                vault.hashicorp.com/agent-pre-populate-only: "true"
+            annotations: {}
         spec:
             serviceAccountName: grafana # ServiceAccount vinculado al rol de Vault
             securityContext:
@@ -73,11 +55,8 @@ spec:
                   env:
                       - name: GF_SECURITY_ADMIN_USER
                         value: admin # Usuario administrador predeterminado
-                      # La variable con sufijo __FILE indica a Grafana que lea la contraseña
-                      # desde un archivo.  Vault Agent Injector escribe el secret en
-                      # /vault/secrets/admin-password y Grafana lo lee con este sufijo.
-                      - name: GF_SECURITY_ADMIN_PASSWORD__FILE
-                        value: /vault/secrets/admin-password # Ruta donde Vault inyecta el secret
+                      - name: GF_SECURITY_ADMIN_PASSWORD
+                        value: admin # Contraseña del admin (lab local, Vault deshabilitado temporalmente)
                       - name: GF_AUTH_ANONYMOUS_ENABLED
                         value: "false" # Deshabilita acceso anónimo — requiere login
                       - name: GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH
