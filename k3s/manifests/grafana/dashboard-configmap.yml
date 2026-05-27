@@ -285,12 +285,12 @@ data:
               },
               "gridPos": { "h": 5, "w": 6, "x": 18, "y": 16 },
               "id": 8,
-              "title": "Pods Running",
+              "title": "Targets UP",
               "type": "stat",
-              "description": "Pods en estado Running en el namespace aiops. Si baja, algo se cayó.",
+              "description": "Cantidad de targets que responden al scrape de Prometheus. Si baja, un servicio dejó de responder.",
               "targets": [
                 {
-                  "expr": "count(kube_pod_status_phase{namespace=\"aiops\", phase=\"Running\"})",
+                  "expr": "count(up == 1)",
                   "refId": "A"
                 }
               ]
