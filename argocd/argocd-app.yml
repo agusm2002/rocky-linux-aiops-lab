@@ -1,0 +1,76 @@
+# ============================================================
+# ArgoCD Application — AIOps Lab
+# ============================================================
+# Define la aplicación que ArgoCD gestiona en el cluster.
+# Cualquier cambio en k3s/manifests/ del repo se sincroniza
+# automáticamente con el cluster gracias a syncPolicy.automated.
+#
+# Este archivo se aplica UNA vez con kubectl. Después, ArgoCD
+# gestiona los recursos definidos en k3s/manifests/ sin
+# intervención manual — eso es GitOps.
+#
+# Nota: Este archivo NO está dentro de k3s/manifests/ porque
+# ArgoCD no debe gestionarse a sí mismo (GitOps inception).
+# Se aplica manualmente o desde un pipeline de bootstrap.
+# ============================================================
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+    name: aiops-lab
+    namespace: argocd
+    labels:
+        app.kubernetes.io/part-of: aiops-lab
+spec:
+    # Proyecto default de ArgoCD (sin restricciones adicionales)
+    project: default
+
+    source:
+        # Repositorio Git que contiene los manifests del cluster
+        repoURL: https://github.com/agusm2002/rocky-linux-aiops-lab
+
+        # Rama que ArgoCD observa. Cuando hay un push a esta rama,
+        # ArgoCD detecta el cambio y sincroniza automáticamente.
+        targetRevision: feat/fase-7.5-mejoras-practicas-stack
+
+        # Directorio donde están los manifests de Kubernetes.
+        # ArgoCD aplica recursivamente todos los .yml/.yaml que encuentra.
+        path: k3s/manifests
+
+        directory:
+            recurse: true
+            # Excluye archivos JSON (workflows de n8n) y la carpeta workflows/*
+            # para que ArgoCD no intente aplicarlos como recursos de Kubernetes.
+            exclude: '{workflows/*,*.json}'
+
+    destination:
+        # El cluster donde se despliegan los recursos (en este caso, el mismo cluster)
+        server: https://kubernetes.default.svc
+        namespace: aiops
+
+    syncPolicy:
+        automated:
+            # prune: true → si se borra un archivo del repo, ArgoCD elimina
+            # el recurso correspondiente del cluster. Sin esto, los recursos
+            # huérfanos se acumulan.
+            prune: true
+
+            # selfHeal: true → si alguien modifica o elimina un recurso
+            # manualmente en el cluster (kubectl delete, editar a mano),
+            # ArgoCD lo restaura al estado definido en Git en ~3 minutos.
+            # Esto es la esencia de GitOps: Git es la fuente de verdad.
+            selfHeal: true
+
+        syncOptions:
+            # Crea el namespace automáticamente si no existe
+            - CreateNamespace=true
+
+    # El webhook de Vault Agent Injector regenera su certificado TLS
+    # automáticamente. Ignoramos el campo caBundle para que ArgoCD no
+    # detecte un falso drift cada vez que el certificado cambia.
+    ignoreDifferences:
+        - group: admissionregistration.k8s.io
+          kind: MutatingWebhookConfiguration
+          name: vault-agent-injector
+          jsonPointers:
+              - /webhooks/0/clientConfig/caBundle
