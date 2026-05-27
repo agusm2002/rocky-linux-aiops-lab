@@ -1,38 +1,19 @@
 # ──────────────────────────────────────────────
 # Network Security Groups — Oracle Cloud (OCI)
-# Fase 8: Seguridad para Producción
+# Fase 9: Migración a Oracle Cloud
 # ──────────────────────────────────────────────
 #
 # Principio de least-privilege: solo se abren los puertos
 # estrictamente necesarios. Todo lo demás está bloqueado.
+#
+# El provider y el bloque terraform están en provider.tf
 # ──────────────────────────────────────────────
 
-terraform {
-  required_version = ">= 1.7"
-
-  required_providers {
-    oci = {
-      source  = "oracle/oci"
-      version = "~> 6.0"
-    }
-  }
-}
-
-provider "oci" {
-  region           = var.region
-  tenancy_ocid     = var.tenancy_ocid
-  user_ocid        = var.user_ocid
-  private_key_path = var.private_key_path
-  fingerprint      = var.fingerprint
-}
-
-# ──────────────────────────────────────────────
-# NSG: Bastion
-# ──────────────────────────────────────────────
+# ── NSG: Bastion ──
 
 resource "oci_core_network_security_group" "bastion" {
   compartment_id = var.compartment_id
-  vcn_id         = var.vcn_id
+  vcn_id         = oci_core_vcn.aiops.id
   display_name   = "nsg-bastion"
 }
 
@@ -58,7 +39,7 @@ resource "oci_core_network_security_group_security_rule" "bastion_ssh" {
 
 resource "oci_core_network_security_group" "k3s" {
   compartment_id = var.compartment_id
-  vcn_id         = var.vcn_id
+  vcn_id         = oci_core_vcn.aiops.id
   display_name   = "nsg-k3s"
 }
 

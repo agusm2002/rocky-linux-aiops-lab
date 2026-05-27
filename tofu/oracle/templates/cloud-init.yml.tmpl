@@ -1,0 +1,30 @@
+#cloud-config
+hostname: ${hostname}
+fqdn: ${hostname}.aiops.local
+manage_etc_hosts: true
+
+users:
+  - name: rocky
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    groups: wheel
+    shell: /bin/bash
+    ssh_authorized_keys:
+      - ${ssh_public_key}
+
+package_update: true
+package_upgrade: false
+
+packages:
+  - git
+  - curl
+  - wget
+  - vim
+  - python3
+  - python3-pip
+  - selinux-policy-targeted
+  - firewalld
+
+runcmd:
+  - systemctl enable firewalld --now
+  - setenforce 1
+  - sed -i 's/SELINUX=disabled/SELINUX=enforcing/' /etc/selinux/config

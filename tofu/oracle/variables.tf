@@ -1,12 +1,12 @@
 # ──────────────────────────────────────────────
-# Variables — Oracle Cloud (OCI) NSG
-# Fase 8: Seguridad para Producción
+# Variables — Oracle Cloud (OCI)
+# Fase 9: Migración a Oracle Cloud
 # ──────────────────────────────────────────────
 
 variable "region" {
-  description = "Región de OCI (ej: us-ashburn-1, sa-saopaulo-1)"
+  description = "Región de OCI"
   type        = string
-  default     = "us-ashburn-1"
+  default     = "sa-saopaulo-1" # Brazil East
 }
 
 variable "tenancy_ocid" {
@@ -34,19 +34,25 @@ variable "fingerprint" {
 }
 
 variable "compartment_id" {
-  description = "OCID del compartment donde se crean los recursos"
+  description = "OCID del compartment aiops-lab"
   type        = string
 }
 
-variable "vcn_id" {
-  description = "OCID de la VCN existente"
+variable "compartment_name" {
+  description = "Nombre del compartment (para policies IAM)"
   type        = string
+  default     = "aiops-lab"
+}
+
+variable "ssh_public_key" {
+  description = "Clave SSH pública para acceso a las VMs"
+  type        = string
+  # Ejemplo: "ssh-ed25519 AAAAC3..."
 }
 
 variable "admin_cidr" {
   description = "Tu IP pública con /32 para acceso SSH al bastion"
   type        = string
-  default     = "0.0.0.0/32"
   # ⚠️  Cambiar a tu IP real antes del apply
   # Ejemplo: "203.0.113.45/32"
 }

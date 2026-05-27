@@ -11,3 +11,11 @@ rocky-linux-aiops-lab-plan-final.md
 
 # Workflows locales con credenciales hardcodeadas (no subir)
 k3s/manifests/n8n/workflows-local/
+
+# Terraform variables con datos sensibles
+*.tfvars
+!*.tfvars.example
+
+# OCI credentials
+o ci_api_key.pem
+*.pem

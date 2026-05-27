@@ -1,0 +1,48 @@
+---
+# Playbook: Hardening + Instalación de k3s en vm-k3s
+# Ejecutar DESDE la Mac:
+#   ansible-playbook -i ansible/inventory/oracle.yml ansible/playbooks/k3s.yml
+
+- name: Hardening base de vm-k3s
+  hosts: k3s
+  become: true
+  roles:
+    - system-base
+    - firewalld
+    - selinux
+    - ssh-hardening
+    - fail2ban
+    - dnf-automatic
+
+- name: Instalar k3s
+  hosts: k3s
+  become: true
+  tasks:
+    - name: Instalar k3s (single-node, ARM64)
+      shell: |
+        curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=v1.29.0+k3s1 sh -s - \
+          --write-kubeconfig-mode 644 \
+          --disable traefik \
+          --disable servicelb
+      args:
+        creates: /usr/local/bin/k3s
+
+    - name: Esperar a que k3s esté listo
+      command: k3s kubectl get nodes
+      changed_when: false
+      retries: 10
+      delay: 10
+      register: result
+      until: result.rc == 0
+
+    - name: Copiar kubeconfig al usuario rocky
+      copy:
+        src: /etc/rancher/k3s/k3s.yaml
+        dest: /home/rocky/.kube/config
+        owner: rocky
+        group: rocky
+        mode: '0600'
+        remote_src: true
+
+    - name: Instalar metrics-server
+      command: k3s kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml

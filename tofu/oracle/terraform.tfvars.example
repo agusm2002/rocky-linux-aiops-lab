@@ -1,0 +1,13 @@
+# ── Oracle Cloud — Variables de OpenTofu ──
+# Copiar este archivo a terraform.tfvars y completar con tus valores.
+# NO commitear terraform.tfvars — contiene datos sensibles.
+
+region            = "sa-saopaulo-1"
+tenancy_ocid      = "ocid1.tenancy.oc1..xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+user_ocid         = "ocid1.user.oc1..xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+fingerprint       = "xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx"
+private_key_path  = "~/.oci/oci_api_key.pem"
+compartment_id    = "ocid1.compartment.oc1..xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+compartment_name  = "aiops-lab"
+ssh_public_key    = "ssh-ed25519 AAAAC3..."
+admin_cidr        = "203.0.113.45/32"  # ⚠️ Cambiar a tu IP real con /32 (curl ifconfig.me)

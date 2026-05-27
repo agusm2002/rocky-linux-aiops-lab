@@ -58,7 +58,11 @@ spec:
                       - name: GF_SECURITY_ADMIN_PASSWORD
                         value: admin # Contraseña del admin (lab local, Vault deshabilitado temporalmente)
                       - name: GF_AUTH_ANONYMOUS_ENABLED
-                        value: "false" # Deshabilita acceso anónimo — requiere login
+                        value: "true" # Acceso read-only público para la demo (Visitante → Viewer)
+                      - name: GF_AUTH_ANONYMOUS_ORG_ROLE
+                        value: Viewer # Solo lectura — no puede modificar dashboards
+                      - name: GF_AUTH_BASIC_ENABLED
+                        value: "true" # Login con usuario/contraseña sigue funcionando para admin
                       - name: GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH
                         value: /var/lib/grafana/dashboards/cluster-overview.json # Dashboard inicial al entrar
                   volumeMounts:

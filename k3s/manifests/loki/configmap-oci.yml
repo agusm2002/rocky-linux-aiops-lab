@@ -1,0 +1,77 @@
+---
+# ConfigMap de Loki — Oracle Cloud (OCI Object Storage como backend)
+#
+# ⚠️  DOCUMENTACIÓN / READY-FOR-PRODUCTION
+# Este configmap muestra cómo conectar Loki a OCI Object Storage
+# usando la API S3-compatible. NO se usa en la demo para evitar
+# exceder el límite de 50,000 API requests/mes del Free Tier.
+#
+# Durante la demo, Loki usa filesystem local (configmap.yml estándar).
+# Este archivo existe como evidencia de que la integración está
+# diseñada y lista para un entorno de producción.
+#
+# REQUISITOS para activarlo:
+#   1. Reemplazar loki/configmap.yml por este archivo
+#   2. Crear Dynamic Group en OCI: dg-k3s
+#   3. Crear Policy: Allow dynamic-group dg-k3s to manage objects
+#   4. O generar access_key/secret_key y descomentar las líneas abajo
+# ──────────────────────────────────────────────
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+    name: loki-config-oci
+    namespace: aiops
+    labels:
+        app.kubernetes.io/part-of: aiops-lab
+        environment: production-ready
+data:
+    loki.yml: |
+        auth_enabled: false
+        server:
+          http_listen_port: 3100
+          grpc_listen_port: 9096
+        common:
+          ring:
+            instance_addr: 127.0.0.1
+            kvstore:
+              store: inmemory
+          replication_factor: 1
+        schema_config:
+          configs:
+            - from: 2024-04-01
+              store: boltdb-shipper
+              object_store: s3
+              schema: v11
+              index:
+                prefix: index_
+                period: 24h
+        storage_config:
+          boltdb_shipper:
+            active_index_directory: /loki/boltdb-shipper-active
+            cache_location: /loki/boltdb-shipper-cache
+            shared_store: s3
+          aws:
+            s3: https://objectstorage.sa-saopaulo-1.oraclecloud.com
+            bucketnames: loki-aiops-lab
+            region: sa-saopaulo-1
+            s3forcepathstyle: true
+            # Auth vía OCI Instance Principal (sin credenciales hardcodeadas).
+            # Si Instance Principal no funciona, generar access key en OCI:
+            # access_key_id: "TU_ACCESS_KEY"
+            # secret_access_key: "TU_SECRET_KEY"
+        limits_config:
+          reject_old_samples: true
+          max_query_length: 721h
+          allow_structured_metadata: false
+          retention_period: 168h  # 7 días
+        compactor:
+          working_directory: /loki/compactor
+          compaction_interval: 10m
+          retention_enabled: true
+          shared_store: s3
+        ingester:
+          wal:
+            dir: /loki/storage/wal
+        analytics:
+          reporting_enabled: false

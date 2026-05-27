@@ -1,0 +1,49 @@
+---
+# Playbook: Hardening del bastion + herramientas de administración
+# Ejecutar DESDE la Mac:
+#   ansible-playbook -i ansible/inventory/oracle.yml ansible/playbooks/bastion.yml
+
+- name: Hardening base del bastion
+  hosts: bastion
+  become: true
+  roles:
+    - system-base
+    - firewalld
+    - selinux
+    - ssh-hardening
+    - fail2ban
+    - dnf-automatic
+
+- name: Instalar herramientas de administración
+  hosts: bastion
+  become: true
+  tasks:
+    - name: Instalar kubectl
+      get_url:
+        url: https://dl.k8s.io/release/v1.29.0/bin/linux/arm64/kubectl
+        dest: /usr/local/bin/kubectl
+        mode: '0755'
+
+    - name: Instalar tofu (OpenTofu)
+      get_url:
+        url: https://github.com/opentofu/opentofu/releases/download/v1.7.0/tofu_1.7.0_linux_arm64.zip
+        dest: /tmp/tofu.zip
+    - name: Extraer tofu
+      unarchive:
+        src: /tmp/tofu.zip
+        dest: /usr/local/bin
+        remote_src: true
+        mode: '0755'
+
+    - name: Instalar argocd CLI
+      get_url:
+        url: https://github.com/argoproj/argo-cd/releases/download/v2.12.0/argocd-linux-arm64
+        dest: /usr/local/bin/argocd
+        mode: '0755'
+
+    - name: Clonar repo del proyecto
+      git:
+        repo: https://github.com/agusm2002/rocky-linux-aiops-lab.git
+        dest: /home/rocky/rocky-linux-aiops-lab
+        version: main
+      become_user: rocky
