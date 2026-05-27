@@ -261,12 +261,12 @@ data:
               },
               "gridPos": { "h": 5, "w": 6, "x": 18, "y": 16 },
               "id": 8,
-              "title": "Pods Healthy",
+              "title": "Pods Running",
               "type": "stat",
-              "description": "Porcentaje de pods en estado Running vs total en el namespace aiops. Si baja del 100%, un pod está fallando.",
+              "description": "Pods en estado Running en el namespace aiops. Si baja, algo se cayó. Alimentado por kube-state-metrics.",
               "targets": [
                 {
-                  "expr": "count(kube_pod_status_phase{namespace=\"aiops\", phase=\"Running\"}) / count(kube_pod_status_phase{namespace=\"aiops\"}) * 100",
+                  "expr": "count(kube_pod_status_phase{namespace=\"aiops\", phase=\"Running\"})",
                   "refId": "A"
                 }
               ]
@@ -286,36 +286,9 @@ data:
                 },
                 "overrides": []
               },
-              "gridPos": { "h": 5, "w": 6, "x": 18, "y": 21 },
-                            "id": 12,
-                            "title": "Pods Total",
-                            "type": "stat",
-                            "description": "Total de pods en el namespace aiops.",
-                            "targets": [
-                              {
-                                "expr": "count(kube_pod_status_phase{namespace=\"aiops\"})",
-                                "refId": "A"
-                              }
-                            ]
-            },
-            {
-              "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-              "fieldConfig": {
-                "defaults": {
-                  "unit": "none",
-                  "decimals": 0,
-                  "thresholds": {
-                    "mode": "absolute",
-                    "steps": [
-                      { "value": null, "color": "blue" }
-                    ]
-                  }
-                },
-                "overrides": []
-              },
-              "gridPos": { "h": 5, "w": 6, "x": 0, "y": 21 },
-                            "id": 9,
-                            "title": "n8n Executions",
+              "gridPos": { "h": 5, "w": 8, "x": 0, "y": 21 },
+              "id": 9,
+              "title": "n8n — Workflow Executions",
               "type": "stat",
               "description": "Total de ejecuciones de workflows en n8n. Las métricas de n8n se scrapean desde /metrics.",
               "targets": [
@@ -341,9 +314,9 @@ data:
                 },
                 "overrides": []
               },
-              "gridPos": { "h": 5, "w": 6, "x": 6, "y": 21 },
-                            "id": 10,
-                            "title": "n8n Active",
+              "gridPos": { "h": 5, "w": 8, "x": 8, "y": 21 },
+              "id": 10,
+              "title": "n8n — Active Workflows",
               "type": "stat",
               "description": "Workflows activos en n8n. Un workflow activo puede ser Cron o Webhook.",
               "targets": [
@@ -371,9 +344,9 @@ data:
                 },
                 "overrides": []
               },
-              "gridPos": { "h": 5, "w": 6, "x": 12, "y": 21 },
-                            "id": 11,
-                            "title": "n8n Duration",
+              "gridPos": { "h": 5, "w": 8, "x": 16, "y": 21 },
+              "id": 11,
+              "title": "n8n — Avg Duration",
               "type": "stat",
               "description": "Duración promedio de ejecución de workflows (en segundos).",
               "targets": [
