@@ -21,7 +21,6 @@ pipeline {
 
     environment {
         NAMESPACE = 'aiops'
-        DISCORD_WEBHOOK_URL = 'https://discord.com/api/webhooks/REPLACE_ME'
     }
 
     stages {
