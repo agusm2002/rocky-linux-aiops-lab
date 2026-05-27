@@ -31,7 +31,7 @@ spec:
 
         # Rama que ArgoCD observa. Cuando hay un push a esta rama,
         # ArgoCD detecta el cambio y sincroniza automáticamente.
-        targetRevision: feat/fase-7.5-mejoras-practicas-stack
+        targetRevision: feat/fase-9-migracion-oracle-cloud
 
         # Directorio donde están los manifests de Kubernetes.
         # ArgoCD aplica recursivamente todos los .yml/.yaml que encuentra.
@@ -41,7 +41,7 @@ spec:
             recurse: true
             # Excluye archivos JSON (workflows de n8n) y la carpeta workflows/*
             # para que ArgoCD no intente aplicarlos como recursos de Kubernetes.
-            exclude: '{workflows/*,*.json}'
+            exclude: "{workflows/*,*.json}"
 
     destination:
         # El cluster donde se despliegan los recursos (en este caso, el mismo cluster)
