@@ -31,7 +31,7 @@
             "name": "Query Availability",
             "type": "n8n-nodes-base.httpRequest",
             "typeVersion": 4.1,
-            "position": [450, 200]
+            "position": [450, 300]
         },
         {
             "parameters": {
@@ -52,7 +52,7 @@
             "name": "Query Memory",
             "type": "n8n-nodes-base.httpRequest",
             "typeVersion": 4.1,
-            "position": [450, 350]
+            "position": [650, 300]
         },
         {
             "parameters": {
@@ -73,7 +73,7 @@
             "name": "Query Running Pods",
             "type": "n8n-nodes-base.httpRequest",
             "typeVersion": 4.1,
-            "position": [450, 500]
+            "position": [850, 300]
         },
         {
             "parameters": {
@@ -83,7 +83,7 @@
             "name": "Format Daily Report",
             "type": "n8n-nodes-base.code",
             "typeVersion": 2,
-            "position": [650, 300]
+            "position": [1050, 300]
         },
         {
             "parameters": {
@@ -98,27 +98,27 @@
             "name": "Notify Discord",
             "type": "n8n-nodes-base.httpRequest",
             "typeVersion": 4.1,
-            "position": [850, 300]
+            "position": [1250, 300]
         }
     ],
     "connections": {
         "8:00 AM Schedule": {
             "main": [
-                [
-                    { "node": "Query Availability", "type": "main", "index": 0 },
-                    { "node": "Query Memory", "type": "main", "index": 0 },
-                    { "node": "Query Running Pods", "type": "main", "index": 0 }
-                ]
+                [{ "node": "Query Availability", "type": "main", "index": 0 }]
             ]
         },
         "Query Availability": {
-            "main": [[{ "node": "Format Daily Report", "type": "main", "index": 0 }]]
+            "main": [[{ "node": "Query Memory", "type": "main", "index": 0 }]]
         },
         "Query Memory": {
-            "main": [[{ "node": "Format Daily Report", "type": "main", "index": 0 }]]
+            "main": [
+                [{ "node": "Query Running Pods", "type": "main", "index": 0 }]
+            ]
         },
         "Query Running Pods": {
-            "main": [[{ "node": "Format Daily Report", "type": "main", "index": 0 }]]
+            "main": [
+                [{ "node": "Format Daily Report", "type": "main", "index": 0 }]
+            ]
         },
         "Format Daily Report": {
             "main": [[{ "node": "Notify Discord", "type": "main", "index": 0 }]]
