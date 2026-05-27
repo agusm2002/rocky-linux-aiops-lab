@@ -22,9 +22,9 @@ data:
     # ============================================================
     # Dashboard: Cluster Overview + SLO
     # ============================================================
-    # Muestra el estado de infraestructura, disponibilidad de servicios
-    # y error budget en un solo vistazo. Las annotations verticales
-    # rojas marcan el momento exacto en que se disparó una alerta.
+    # Layout definido desde la UI de Grafana. Las annotations
+    # verticales rojas marcan el momento exacto en que se disparó
+    # una alerta de Prometheus.
     # ============================================================
     cluster-overview.json: |
         {
@@ -32,7 +32,10 @@ data:
             "list": [
               {
                 "builtIn": 1,
-                "datasource": { "type": "datasource", "uid": "-- Grafana --" },
+                "datasource": {
+                  "type": "datasource",
+                  "uid": "-- Grafana --"
+                },
                 "enable": true,
                 "hide": true,
                 "iconColor": "rgba(0, 211, 255, 1)",
@@ -40,15 +43,18 @@ data:
                 "type": "dashboard"
               },
               {
-                "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "${DS_PROMETHEUS}"
+                },
                 "enable": true,
+                "expr": "ALERTS{alertstate=\"firing\"}",
                 "hide": false,
                 "iconColor": "red",
                 "name": "Alertas de Prometheus",
-                "expr": "ALERTS{alertstate=\"firing\"}",
                 "step": "60s",
-                "titleFormat": "{{ alertname }}",
                 "textFormat": "{{ summary }}",
+                "titleFormat": "{{ alertname }}",
                 "type": "dashboard"
               }
             ]
@@ -61,318 +67,823 @@ data:
           "liveNow": false,
           "panels": [
             {
-              "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-              "fieldConfig": {
-                "defaults": { "unit": "percent", "decimals": 1, "max": 100, "min": 0 },
-                "overrides": []
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
               },
-              "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
-              "id": 1,
-              "title": "CPU Usage (%)",
-              "type": "timeseries",
-              "description": "Porcentaje de CPU utilizado (100 - idle). Muestra la carga real del nodo.",
-              "targets": [
-                {
-                  "expr": "100 - (avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
-                  "legendFormat": "{{instance}}",
-                  "refId": "A"
-                }
-              ]
-            },
-            {
-              "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-              "fieldConfig": {
-                "defaults": { "unit": "percent", "decimals": 1, "max": 100, "min": 0 },
-                "overrides": []
-              },
-              "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
-              "id": 2,
-              "title": "Memory Usage (%)",
-              "type": "timeseries",
-              "description": "Porcentaje de memoria utilizada. La línea punteada roja marca el 85% (umbral de alerta HighMemoryUsage).",
-              "targets": [
-                {
-                  "expr": "(node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100",
-                  "legendFormat": "{{instance}}",
-                  "refId": "A"
-                }
-              ]
-            },
-            {
-              "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-              "fieldConfig": {
-                "defaults": { "unit": "percent", "decimals": 1, "max": 100, "min": 0 },
-                "overrides": []
-              },
-              "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
-              "id": 3,
-              "title": "Disk Usage (%) — /",
-              "type": "timeseries",
-              "description": "Porcentaje de disco ocupado en la partición raíz. Umbrales: 80% warning, 90% critical.",
-              "targets": [
-                {
-                  "expr": "(node_filesystem_size_bytes{mountpoint=\"/\"} - node_filesystem_free_bytes{mountpoint=\"/\"}) / node_filesystem_size_bytes{mountpoint=\"/\"} * 100",
-                  "legendFormat": "{{instance}}",
-                  "refId": "A"
-                }
-              ]
-            },
-            {
-              "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+              "description": "Pods en estado Running en el namespace aiops. Si baja, algo se cayó. Alimentado por kube-state-metrics.",
               "fieldConfig": {
                 "defaults": {
-                  "mappings": [
-                    { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }
-                  ],
+                  "decimals": 0,
+                  "mappings": [],
                   "thresholds": {
                     "mode": "absolute",
                     "steps": [
-                      { "value": null, "color": "red" },
-                      { "value": 1, "color": "green" }
+                      {
+                        "color": "blue",
+                        "value": null
+                      }
                     ]
                   },
-                  "decimals": 0,
                   "unit": "none"
                 },
                 "overrides": []
               },
-              "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
-              "id": 4,
-              "title": "Service Status (up)",
-              "type": "stat",
+              "gridPos": {
+                "h": 4,
+                "w": 2,
+                "x": 0,
+                "y": 0
+              },
+              "id": 8,
+              "options": {
+                "colorMode": "value",
+                "graphMode": "area",
+                "justifyMode": "auto",
+                "orientation": "auto",
+                "reduceOptions": {
+                  "calcs": [
+                    "lastNotNull"
+                  ],
+                  "fields": "",
+                  "values": false
+                },
+                "showPercentChange": false,
+                "textMode": "auto",
+                "wideLayout": true
+              },
+              "pluginVersion": "10.4.1",
+              "targets": [
+                {
+                  "expr": "count(kube_pod_status_phase{namespace=\"aiops\", phase=\"Running\"})",
+                  "refId": "A"
+                }
+              ],
+              "title": "Pods Running",
+              "type": "stat"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
               "description": "Estado de cada target scrapeado por Prometheus. 1 = UP, 0 = DOWN.",
+              "fieldConfig": {
+                "defaults": {
+                  "decimals": 0,
+                  "mappings": [
+                    {
+                      "options": {
+                        "0": {
+                          "color": "red",
+                          "text": "DOWN"
+                        },
+                        "1": {
+                          "color": "green",
+                          "text": "UP"
+                        }
+                      },
+                      "type": "value"
+                    }
+                  ],
+                  "thresholds": {
+                    "mode": "absolute",
+                    "steps": [
+                      {
+                        "color": "red",
+                        "value": null
+                      },
+                      {
+                        "color": "green",
+                        "value": 1
+                      }
+                    ]
+                  },
+                  "unit": "none"
+                },
+                "overrides": []
+              },
+              "gridPos": {
+                "h": 4,
+                "w": 22,
+                "x": 2,
+                "y": 0
+              },
+              "id": 4,
+              "options": {
+                "colorMode": "value",
+                "graphMode": "area",
+                "justifyMode": "auto",
+                "orientation": "auto",
+                "reduceOptions": {
+                  "calcs": [
+                    "lastNotNull"
+                  ],
+                  "fields": "",
+                  "values": false
+                },
+                "showPercentChange": false,
+                "textMode": "auto",
+                "wideLayout": true
+              },
+              "pluginVersion": "10.4.1",
               "targets": [
                 {
                   "expr": "up",
                   "legendFormat": "{{job}}",
                   "refId": "A"
                 }
-              ]
+              ],
+              "title": "Service Status (up)",
+              "type": "stat"
             },
             {
-              "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "description": "Porcentaje de CPU utilizado (100 - idle). Muestra la carga real del nodo.",
               "fieldConfig": {
                 "defaults": {
-                  "unit": "percent",
-                  "decimals": 2,
+                  "color": {
+                    "mode": "palette-classic"
+                  },
+                  "custom": {
+                    "axisBorderShow": false,
+                    "axisCenteredZero": false,
+                    "axisColorMode": "text",
+                    "axisLabel": "",
+                    "axisPlacement": "auto",
+                    "barAlignment": 0,
+                    "drawStyle": "line",
+                    "fillOpacity": 0,
+                    "gradientMode": "none",
+                    "hideFrom": {
+                      "legend": false,
+                      "tooltip": false,
+                      "viz": false
+                    },
+                    "insertNulls": false,
+                    "lineInterpolation": "linear",
+                    "lineWidth": 1,
+                    "pointSize": 5,
+                    "scaleDistribution": {
+                      "type": "linear"
+                    },
+                    "showPoints": "auto",
+                    "spanNulls": false,
+                    "stacking": {
+                      "group": "A",
+                      "mode": "none"
+                    },
+                    "thresholdsStyle": {
+                      "mode": "off"
+                    }
+                  },
+                  "decimals": 1,
+                  "mappings": [],
+                  "max": 100,
+                  "min": 0,
                   "thresholds": {
                     "mode": "absolute",
                     "steps": [
-                      { "value": null, "color": "red" },
-                      { "value": 99, "color": "yellow" },
-                      { "value": 99.9, "color": "green" }
+                      {
+                        "color": "green",
+                        "value": null
+                      },
+                      {
+                        "color": "red",
+                        "value": 80
+                      }
                     ]
                   },
-                  "min": 0,
-                  "max": 100
+                  "unit": "percent"
                 },
                 "overrides": []
               },
-              "gridPos": { "h": 5, "w": 6, "x": 0, "y": 16 },
-              "id": 5,
-              "title": "SLO — Grafana (24h)",
-              "type": "stat",
+              "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 0,
+                "y": 4
+              },
+              "id": 1,
+              "options": {
+                "legend": {
+                  "calcs": [],
+                  "displayMode": "list",
+                  "placement": "bottom",
+                  "showLegend": true
+                },
+                "tooltip": {
+                  "mode": "single",
+                  "sort": "none"
+                }
+              },
+              "targets": [
+                {
+                  "expr": "100 - (avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
+                  "legendFormat": "{{instance}}",
+                  "refId": "A"
+                }
+              ],
+              "title": "CPU Usage (%)",
+              "type": "timeseries"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "description": "Porcentaje de memoria utilizada. La línea punteada roja marca el 85% (umbral de alerta HighMemoryUsage).",
+              "fieldConfig": {
+                "defaults": {
+                  "color": {
+                    "mode": "palette-classic"
+                  },
+                  "custom": {
+                    "axisBorderShow": false,
+                    "axisCenteredZero": false,
+                    "axisColorMode": "text",
+                    "axisLabel": "",
+                    "axisPlacement": "auto",
+                    "barAlignment": 0,
+                    "drawStyle": "line",
+                    "fillOpacity": 0,
+                    "gradientMode": "none",
+                    "hideFrom": {
+                      "legend": false,
+                      "tooltip": false,
+                      "viz": false
+                    },
+                    "insertNulls": false,
+                    "lineInterpolation": "linear",
+                    "lineWidth": 1,
+                    "pointSize": 5,
+                    "scaleDistribution": {
+                      "type": "linear"
+                    },
+                    "showPoints": "auto",
+                    "spanNulls": false,
+                    "stacking": {
+                      "group": "A",
+                      "mode": "none"
+                    },
+                    "thresholdsStyle": {
+                      "mode": "off"
+                    }
+                  },
+                  "decimals": 1,
+                  "mappings": [],
+                  "max": 100,
+                  "min": 0,
+                  "thresholds": {
+                    "mode": "absolute",
+                    "steps": [
+                      {
+                        "color": "green",
+                        "value": null
+                      },
+                      {
+                        "color": "red",
+                        "value": 80
+                      }
+                    ]
+                  },
+                  "unit": "percent"
+                },
+                "overrides": []
+              },
+              "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 8,
+                "y": 4
+              },
+              "id": 2,
+              "options": {
+                "legend": {
+                  "calcs": [],
+                  "displayMode": "list",
+                  "placement": "bottom",
+                  "showLegend": true
+                },
+                "tooltip": {
+                  "mode": "single",
+                  "sort": "none"
+                }
+              },
+              "targets": [
+                {
+                  "expr": "(node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100",
+                  "legendFormat": "{{instance}}",
+                  "refId": "A"
+                }
+              ],
+              "title": "Memory Usage (%)",
+              "type": "timeseries"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "description": "Porcentaje de disco ocupado en la partición raíz. Umbrales: 80% warning, 90% critical.",
+              "fieldConfig": {
+                "defaults": {
+                  "color": {
+                    "mode": "palette-classic"
+                  },
+                  "custom": {
+                    "axisBorderShow": false,
+                    "axisCenteredZero": false,
+                    "axisColorMode": "text",
+                    "axisLabel": "",
+                    "axisPlacement": "auto",
+                    "barAlignment": 0,
+                    "drawStyle": "line",
+                    "fillOpacity": 0,
+                    "gradientMode": "none",
+                    "hideFrom": {
+                      "legend": false,
+                      "tooltip": false,
+                      "viz": false
+                    },
+                    "insertNulls": false,
+                    "lineInterpolation": "linear",
+                    "lineWidth": 1,
+                    "pointSize": 5,
+                    "scaleDistribution": {
+                      "type": "linear"
+                    },
+                    "showPoints": "auto",
+                    "spanNulls": false,
+                    "stacking": {
+                      "group": "A",
+                      "mode": "none"
+                    },
+                    "thresholdsStyle": {
+                      "mode": "off"
+                    }
+                  },
+                  "decimals": 1,
+                  "mappings": [],
+                  "max": 100,
+                  "min": 0,
+                  "thresholds": {
+                    "mode": "absolute",
+                    "steps": [
+                      {
+                        "color": "green",
+                        "value": null
+                      },
+                      {
+                        "color": "red",
+                        "value": 80
+                      }
+                    ]
+                  },
+                  "unit": "percent"
+                },
+                "overrides": []
+              },
+              "gridPos": {
+                "h": 8,
+                "w": 8,
+                "x": 16,
+                "y": 4
+              },
+              "id": 3,
+              "options": {
+                "legend": {
+                  "calcs": [],
+                  "displayMode": "list",
+                  "placement": "bottom",
+                  "showLegend": true
+                },
+                "tooltip": {
+                  "mode": "single",
+                  "sort": "none"
+                }
+              },
+              "targets": [
+                {
+                  "expr": "(node_filesystem_size_bytes{mountpoint=\"/\"} - node_filesystem_free_bytes{mountpoint=\"/\"}) / node_filesystem_size_bytes{mountpoint=\"/\"} * 100",
+                  "legendFormat": "{{instance}}",
+                  "refId": "A"
+                }
+              ],
+              "title": "Disk Usage (%) — /",
+              "type": "timeseries"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "description": "Total de ejecuciones de workflows en n8n. Las métricas de n8n se scrapean desde /metrics.",
+              "fieldConfig": {
+                "defaults": {
+                  "decimals": 0,
+                  "mappings": [],
+                  "thresholds": {
+                    "mode": "absolute",
+                    "steps": [
+                      {
+                        "color": "blue",
+                        "value": null
+                      }
+                    ]
+                  },
+                  "unit": "none"
+                },
+                "overrides": []
+              },
+              "gridPos": {
+                "h": 5,
+                "w": 8,
+                "x": 0,
+                "y": 12
+              },
+              "id": 9,
+              "options": {
+                "colorMode": "value",
+                "graphMode": "area",
+                "justifyMode": "auto",
+                "orientation": "auto",
+                "reduceOptions": {
+                  "calcs": [
+                    "lastNotNull"
+                  ],
+                  "fields": "",
+                  "values": false
+                },
+                "showPercentChange": false,
+                "textMode": "auto",
+                "wideLayout": true
+              },
+              "pluginVersion": "10.4.1",
+              "targets": [
+                {
+                  "expr": "sum(n8n_workflow_execution_duration_seconds_count)",
+                  "refId": "A"
+                }
+              ],
+              "title": "n8n — Workflow Executions",
+              "type": "stat"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "description": "Workflows activos en n8n. Un workflow activo puede ser Cron o Webhook.",
+              "fieldConfig": {
+                "defaults": {
+                  "color": {
+                    "mode": "thresholds"
+                  },
+                  "decimals": 0,
+                  "mappings": [],
+                  "thresholds": {
+                    "mode": "absolute",
+                    "steps": [
+                      {
+                        "color": "green",
+                        "value": null
+                      }
+                    ]
+                  },
+                  "unit": "none"
+                },
+                "overrides": []
+              },
+              "gridPos": {
+                "h": 5,
+                "w": 8,
+                "x": 8,
+                "y": 12
+              },
+              "id": 10,
+              "options": {
+                "colorMode": "value",
+                "graphMode": "area",
+                "justifyMode": "auto",
+                "orientation": "auto",
+                "reduceOptions": {
+                  "calcs": [
+                    "lastNotNull"
+                  ],
+                  "fields": "",
+                  "values": false
+                },
+                "showPercentChange": false,
+                "textMode": "auto",
+                "wideLayout": true
+              },
+              "pluginVersion": "10.4.1",
+              "targets": [
+                {
+                  "expr": "n8n_active_workflow_count",
+                  "refId": "A"
+                }
+              ],
+              "title": "n8n — Active Workflows",
+              "type": "stat"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "description": "Duración promedio de ejecución de workflows (en segundos).",
+              "fieldConfig": {
+                "defaults": {
+                  "color": {
+                    "mode": "thresholds"
+                  },
+                  "decimals": 2,
+                  "mappings": [],
+                  "thresholds": {
+                    "mode": "absolute",
+                    "steps": [
+                      {
+                        "color": "green",
+                        "value": null
+                      },
+                      {
+                        "color": "yellow",
+                        "value": 60
+                      },
+                      {
+                        "color": "red",
+                        "value": 120
+                      }
+                    ]
+                  },
+                  "unit": "s"
+                },
+                "overrides": []
+              },
+              "gridPos": {
+                "h": 5,
+                "w": 8,
+                "x": 16,
+                "y": 12
+              },
+              "id": 11,
+              "options": {
+                "colorMode": "value",
+                "graphMode": "area",
+                "justifyMode": "auto",
+                "orientation": "auto",
+                "reduceOptions": {
+                  "calcs": [
+                    "lastNotNull"
+                  ],
+                  "fields": "",
+                  "values": false
+                },
+                "showPercentChange": false,
+                "textMode": "auto",
+                "wideLayout": true
+              },
+              "pluginVersion": "10.4.1",
+              "targets": [
+                {
+                  "expr": "sum(n8n_workflow_execution_duration_seconds_sum) / sum(n8n_workflow_execution_duration_seconds_count)",
+                  "refId": "A"
+                }
+              ],
+              "title": "n8n — Avg Duration",
+              "type": "stat"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
               "description": "Disponibilidad de Grafana en las últimas 24 horas. Valor < 99.9% dispara la alerta GrafanaSLOBreach.",
+              "fieldConfig": {
+                "defaults": {
+                  "decimals": 2,
+                  "mappings": [],
+                  "max": 100,
+                  "min": 0,
+                  "thresholds": {
+                    "mode": "absolute",
+                    "steps": [
+                      {
+                        "color": "red",
+                        "value": null
+                      },
+                      {
+                        "color": "yellow",
+                        "value": 99
+                      },
+                      {
+                        "color": "green",
+                        "value": 99.9
+                      }
+                    ]
+                  },
+                  "unit": "percent"
+                },
+                "overrides": []
+              },
+              "gridPos": {
+                "h": 5,
+                "w": 8,
+                "x": 0,
+                "y": 17
+              },
+              "id": 5,
+              "options": {
+                "colorMode": "value",
+                "graphMode": "area",
+                "justifyMode": "auto",
+                "orientation": "auto",
+                "reduceOptions": {
+                  "calcs": [
+                    "lastNotNull"
+                  ],
+                  "fields": "",
+                  "values": false
+                },
+                "showPercentChange": false,
+                "textMode": "auto",
+                "wideLayout": true
+              },
+              "pluginVersion": "10.4.1",
               "targets": [
                 {
                   "expr": "avg_over_time(up{job=\"grafana\"}[24h]) * 100",
                   "legendFormat": "Grafana",
                   "refId": "A"
                 }
-              ]
+              ],
+              "title": "SLO — Grafana (24h)",
+              "type": "stat"
             },
             {
-              "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "description": "Disponibilidad de n8n en las últimas 24 horas. Si n8n cae, el pipeline de auto-remediación se rompe.",
               "fieldConfig": {
                 "defaults": {
-                  "unit": "percent",
                   "decimals": 2,
+                  "mappings": [],
+                  "max": 100,
+                  "min": 0,
                   "thresholds": {
                     "mode": "absolute",
                     "steps": [
-                      { "value": null, "color": "red" },
-                      { "value": 99, "color": "yellow" },
-                      { "value": 99.9, "color": "green" }
+                      {
+                        "color": "red",
+                        "value": null
+                      },
+                      {
+                        "color": "yellow",
+                        "value": 99
+                      },
+                      {
+                        "color": "green",
+                        "value": 99.9
+                      }
                     ]
                   },
-                  "min": 0,
-                  "max": 100
+                  "unit": "percent"
                 },
                 "overrides": []
               },
-              "gridPos": { "h": 5, "w": 6, "x": 6, "y": 16 },
+              "gridPos": {
+                "h": 5,
+                "w": 8,
+                "x": 8,
+                "y": 17
+              },
               "id": 6,
-              "title": "SLO — n8n (24h)",
-              "type": "stat",
-              "description": "Disponibilidad de n8n en las últimas 24 horas. Si n8n cae, el pipeline de auto-remediación se rompe.",
+              "options": {
+                "colorMode": "value",
+                "graphMode": "area",
+                "justifyMode": "auto",
+                "orientation": "auto",
+                "reduceOptions": {
+                  "calcs": [
+                    "lastNotNull"
+                  ],
+                  "fields": "",
+                  "values": false
+                },
+                "showPercentChange": false,
+                "textMode": "auto",
+                "wideLayout": true
+              },
+              "pluginVersion": "10.4.1",
               "targets": [
                 {
                   "expr": "avg_over_time(up{job=\"n8n\"}[24h]) * 100",
                   "legendFormat": "n8n",
                   "refId": "A"
                 }
-              ]
+              ],
+              "title": "SLO — n8n (24h)",
+              "type": "stat"
             },
             {
-              "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${DS_PROMETHEUS}"
+              },
+              "description": "Minutos de downtime consumidos este mes (SLO: 99.9% = 43.8 min permitidos). Si se acerca al máximo, el SLO está en riesgo.",
               "fieldConfig": {
                 "defaults": {
-                  "unit": "min",
                   "decimals": 0,
+                  "mappings": [],
+                  "max": 43.8,
+                  "min": 0,
                   "thresholds": {
                     "mode": "absolute",
                     "steps": [
-                      { "value": null, "color": "green" },
-                      { "value": 20, "color": "yellow" },
-                      { "value": 40, "color": "red" }
+                      {
+                        "color": "green",
+                        "value": null
+                      },
+                      {
+                        "color": "yellow",
+                        "value": 20
+                      },
+                      {
+                        "color": "red",
+                        "value": 40
+                      }
                     ]
                   },
-                  "min": 0,
-                  "max": 43.8
+                  "unit": "min"
                 },
                 "overrides": []
               },
-              "gridPos": { "h": 5, "w": 6, "x": 12, "y": 16 },
+              "gridPos": {
+                "h": 5,
+                "w": 8,
+                "x": 16,
+                "y": 17
+              },
               "id": 7,
-              "title": "Error Budget — Grafana",
-              "type": "gauge",
-              "description": "Minutos de downtime consumidos este mes (SLO: 99.9% = 43.8 min permitidos). Si se acerca al máximo, el SLO está en riesgo.",
+              "options": {
+                "minVizHeight": 75,
+                "minVizWidth": 75,
+                "orientation": "auto",
+                "reduceOptions": {
+                  "calcs": [
+                    "lastNotNull"
+                  ],
+                  "fields": "",
+                  "values": false
+                },
+                "showThresholdLabels": false,
+                "showThresholdMarkers": true,
+                "sizing": "auto"
+              },
+              "pluginVersion": "10.4.1",
               "targets": [
                 {
                   "expr": "(1 - avg_over_time(up{job=\"grafana\"}[30d])) * 30 * 24 * 60",
                   "refId": "A"
                 }
-              ]
-            },
-            {
-              "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-              "fieldConfig": {
-                "defaults": {
-                  "unit": "none",
-                  "decimals": 0,
-                  "thresholds": {
-                    "mode": "absolute",
-                    "steps": [
-                      { "value": null, "color": "blue" }
-                    ]
-                  }
-                },
-                "overrides": []
-              },
-              "gridPos": { "h": 5, "w": 6, "x": 18, "y": 16 },
-              "id": 8,
-              "title": "Pods Running",
-              "type": "stat",
-              "description": "Pods en estado Running en el namespace aiops. Si baja, algo se cayó. Alimentado por kube-state-metrics.",
-              "targets": [
-                {
-                  "expr": "count(kube_pod_status_phase{namespace=\"aiops\", phase=\"Running\"})",
-                  "refId": "A"
-                }
-              ]
-            },
-            {
-              "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-              "fieldConfig": {
-                "defaults": {
-                  "unit": "none",
-                  "decimals": 0,
-                  "thresholds": {
-                    "mode": "absolute",
-                    "steps": [
-                      { "value": null, "color": "blue" }
-                    ]
-                  }
-                },
-                "overrides": []
-              },
-              "gridPos": { "h": 5, "w": 8, "x": 0, "y": 21 },
-              "id": 9,
-              "title": "n8n — Workflow Executions",
-              "type": "stat",
-              "description": "Total de ejecuciones de workflows en n8n. Las métricas de n8n se scrapean desde /metrics.",
-              "targets": [
-                {
-                  "expr": "sum(n8n_workflow_execution_duration_seconds_count)",
-                  "refId": "A"
-                }
-              ]
-            },
-            {
-              "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-              "fieldConfig": {
-                "defaults": {
-                  "unit": "none",
-                  "decimals": 0,
-                  "color": { "mode": "thresholds" },
-                  "thresholds": {
-                    "mode": "absolute",
-                    "steps": [
-                      { "value": null, "color": "green" }
-                    ]
-                  }
-                },
-                "overrides": []
-              },
-              "gridPos": { "h": 5, "w": 8, "x": 8, "y": 21 },
-              "id": 10,
-              "title": "n8n — Active Workflows",
-              "type": "stat",
-              "description": "Workflows activos en n8n. Un workflow activo puede ser Cron o Webhook.",
-              "targets": [
-                {
-                  "expr": "n8n_active_workflow_count",
-                  "refId": "A"
-                }
-              ]
-            },
-            {
-              "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-              "fieldConfig": {
-                "defaults": {
-                  "unit": "s",
-                  "decimals": 2,
-                  "color": { "mode": "thresholds" },
-                  "thresholds": {
-                    "mode": "absolute",
-                    "steps": [
-                      { "value": null, "color": "green" },
-                      { "value": 60, "color": "yellow" },
-                      { "value": 120, "color": "red" }
-                    ]
-                  }
-                },
-                "overrides": []
-              },
-              "gridPos": { "h": 5, "w": 8, "x": 16, "y": 21 },
-              "id": 11,
-              "title": "n8n — Avg Duration",
-              "type": "stat",
-              "description": "Duración promedio de ejecución de workflows (en segundos).",
-              "targets": [
-                {
-                  "expr": "sum(n8n_workflow_execution_duration_seconds_sum) / sum(n8n_workflow_execution_duration_seconds_count)",
-                  "refId": "A"
-                }
-              ]
+              ],
+              "title": "Error Budget — Grafana",
+              "type": "gauge"
             }
           ],
           "refresh": "30s",
           "schemaVersion": 39,
-          "style": "dark",
-          "tags": ["aiops", "cluster-overview", "slo"],
+          "tags": [
+            "aiops",
+            "cluster-overview",
+            "slo"
+          ],
           "templating": {
             "list": [
               {
-                "current": {},
+                "current": {
+                  "selected": true,
+                  "text": "Prometheus",
+                  "value": "PBFA97CFB590B2093"
+                },
                 "hide": 0,
                 "includeAll": false,
                 "label": "Prometheus",
+                "multi": false,
                 "name": "DS_PROMETHEUS",
                 "options": [],
                 "query": "prometheus",
+                "queryValue": "",
                 "refresh": 1,
                 "regex": "",
+                "skipUrlSync": false,
                 "type": "datasource"
               }
             ]
@@ -381,9 +892,11 @@ data:
             "from": "now-1h",
             "to": "now"
           },
+          "timepicker": {},
+          "timezone": "",
           "title": "Cluster Overview",
           "uid": "cluster-overview",
-          "version": 2
+          "version": 1
         }
 
     # ============================================================
