@@ -96,18 +96,6 @@ data:
                   "legendFormat": "{{instance}}",
                   "refId": "A"
                 }
-              ],
-              "thresholds": [
-                {
-                  "step": 1,
-                  "value": 85,
-                  "color": "red",
-                  "line": true,
-                  "fill": false,
-                  "dashLength": 10,
-                  "spaceLength": 10,
-                  "op": "gt"
-                }
               ]
             },
             {
@@ -120,24 +108,12 @@ data:
               "id": 3,
               "title": "Disk Usage (%) — /",
               "type": "timeseries",
-              "description": "Porcentaje de disco ocupado en la partición raíz. La línea punteada roja marca el 80% (umbral de alerta DiskSpaceLow).",
+              "description": "Porcentaje de disco ocupado en la partición raíz. Umbrales: 80% warning, 90% critical.",
               "targets": [
                 {
                   "expr": "(node_filesystem_size_bytes{mountpoint=\"/\"} - node_filesystem_free_bytes{mountpoint=\"/\"}) / node_filesystem_size_bytes{mountpoint=\"/\"} * 100",
                   "legendFormat": "{{instance}}",
                   "refId": "A"
-                }
-              ],
-              "thresholds": [
-                {
-                  "step": 1,
-                  "value": 80,
-                  "color": "red",
-                  "line": true,
-                  "fill": false,
-                  "dashLength": 10,
-                  "spaceLength": 10,
-                  "op": "gt"
                 }
               ]
             },
@@ -285,12 +261,12 @@ data:
               },
               "gridPos": { "h": 5, "w": 6, "x": 18, "y": 16 },
               "id": 8,
-              "title": "Targets UP",
+              "title": "Pods Running",
               "type": "stat",
-              "description": "Cantidad de targets que responden al scrape de Prometheus. Si baja, un servicio dejó de responder.",
+              "description": "Pods en estado Running en el namespace aiops. Si baja, algo se cayó. Alimentado por kube-state-metrics.",
               "targets": [
                 {
-                  "expr": "count(up == 1)",
+                  "expr": "count(kube_pod_status_phase{namespace=\"aiops\", phase=\"Running\"})",
                   "refId": "A"
                 }
               ]

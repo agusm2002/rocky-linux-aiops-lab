@@ -61,25 +61,15 @@ data:
                   - "node-exporter.aiops:9100"
 
           # -----------------------------------------------------------------
-          # 3. k3s kubelet metrics — métricas de cAdvisor del kubelet.
-          #    k3s expone métricas de contenedores en /metrics/cadvisor del kubelet.
-          #    Usamos kubernetes_sd_configs con role "node" para descubrir los nodos
-          #    automáticamente en lugar de hardcodear IPs.
-          #    Requiere autenticación con ServiceAccount token y TLS con
-          #    insecure_skip_verify porque k3s usa certificados auto-firmados.
+          # 3. kube-state-metrics — métricas de estado de objetos de Kubernetes
+          #    (pods, deployments, replicasets, etc.). Expone métricas como
+          #    kube_pod_status_phase que alimentan paneles de estado y alertas.
+          #    No requiere acceso al kubelet — consulta la API de Kubernetes.
           # -----------------------------------------------------------------
-          - job_name: "k3s-kubelet"
-            scheme: https
-            metrics_path: /metrics/cadvisor
-            kubernetes_sd_configs:
-              - role: node
-            tls_config:
-              # k3s genera certificados auto-firmados; sin esto Prometheus rechaza la conexión.
-              insecure_skip_verify: true
-            authorization:
-              # El token del ServiceAccount montado automáticamente en el pod.
-              # Permite a Prometheus autenticarse contra el kubelet.
-              credentials_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+          - job_name: "kube-state-metrics"
+            static_configs:
+              - targets:
+                  - "kube-state-metrics.aiops.svc.cluster.local:8080"
 
           # -----------------------------------------------------------------
           # 4. n8n — expone métricas de workflows (ejecuciones, fallos, latencia).
