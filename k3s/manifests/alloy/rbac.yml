@@ -26,6 +26,11 @@ rules:
     - apiGroups: [""]
       resources: ["pods"]
       verbs: ["get", "list", "watch"]
+    # pods/log: permiso para leer logs de contenedores — necesario para
+    # loki.source.kubernetes que taillea los logs de cada pod.
+    - apiGroups: [""]
+      resources: ["pods/log"]
+      verbs: ["get", "list", "watch"]
     # namespaces: permiso para listar namespaces — discovery.kubernetes lo usa
     # para resolver los nombres de namespace en la configuración.
     - apiGroups: [""]
