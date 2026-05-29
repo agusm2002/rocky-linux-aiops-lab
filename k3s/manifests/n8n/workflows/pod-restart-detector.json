@@ -6,7 +6,7 @@
                 "mode": "custom",
                 "cronExpression": "*/15 * * * *"
             },
-            "id": "p0d-r3st4rt-tr1gg3r-001",
+            "id": "pod-restart-trigger",
             "name": "Every 15 minutes",
             "type": "n8n-nodes-base.scheduleTrigger",
             "typeVersion": 1,
@@ -27,7 +27,7 @@
                 },
                 "options": {}
             },
-            "id": "p0d-r3st4rt-pr0m-002",
+            "id": "pod-restart-query",
             "name": "Query Restart Rate",
             "type": "n8n-nodes-base.httpRequest",
             "typeVersion": 4.1,
@@ -39,11 +39,11 @@
                     "options": {
                         "caseSensitive": true,
                         "leftValue": "",
-                        "typeValidation": "strict"
+                        "typeValidation": "loose"
                     },
                     "conditions": [
                         {
-                            "id": "p0d-r3st4rt-1f-c0nd-001",
+                            "id": "pod-restart-if-001",
                             "leftValue": "={{ $json.data.result.length }}",
                             "rightValue": 0,
                             "operator": {
@@ -55,7 +55,7 @@
                 },
                 "options": {}
             },
-            "id": "p0d-r3st4rt-1f-003",
+            "id": "pod-restart-if",
             "name": "Any excessive restarts?",
             "type": "n8n-nodes-base.if",
             "typeVersion": 2,
@@ -63,9 +63,9 @@
         },
         {
             "parameters": {
-                "jsCode": "const results = $('Query Restart Rate').first().json.data.result;\n\nconst pods = results.map(r => {\n  const pod = r.metric.pod || 'unknown';\n  const restarts = parseFloat(r.value[1]).toFixed(0);\n  return `• ${pod}: ${restarts} reinicios en la última hora`;\n}).join('\\n');\n\nconst count = results.length;\nconst message = `⚠️ *Pods con reinicios excesivos (>3 en 1h)*\\n` +\n  `Se detectaron ${count} pods problemáticos:\\n\\n${pods}\\n\\n` +\n  `🕐 ${new Date().toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' })}`;\n\nreturn [{\n  json: {\n    body: JSON.stringify({ content: message }),\n    podCount: count\n  }\n}];"
+                "jsCode": "const data = $input.first().json;\nconst results = data.data.result || [];\n\nif (results.length === 0) {\n  return [{ json: { body: JSON.stringify({ content: 'No excessive restarts detected.' }), podCount: 0 } }];\n}\n\nconst pods = results.map(r => {\n  const pod = r.metric.pod || 'unknown';\n  const restarts = parseFloat(r.value[1]).toFixed(0);\n  return `• ${pod}: ${restarts} reinicios en la última hora`;\n}).join('\\n');\n\nconst count = results.length;\nconst message = `⚠️ *Pods con reinicios excesivos (>3 en 1h)*\\nSe detectaron ${count} pods problemáticos:\\n\\n${pods}\\n\\n🕐 ${new Date().toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' })}`;\n\nreturn [{\n  json: {\n    body: JSON.stringify({ content: message }),\n    podCount: count\n  }\n}];"
             },
-            "id": "p0d-r3st4rt-c0d3-004",
+            "id": "pod-restart-code",
             "name": "Format Alert",
             "type": "n8n-nodes-base.code",
             "typeVersion": 2,
@@ -80,7 +80,7 @@
                 "specifyBody": "json",
                 "jsonBody": "={{ JSON.parse($json.body) }}"
             },
-            "id": "p0d-r3st4rt-d1sc0rd-005",
+            "id": "pod-restart-discord",
             "name": "Notify Discord",
             "type": "n8n-nodes-base.httpRequest",
             "typeVersion": 4.1,
@@ -90,32 +90,28 @@
     "connections": {
         "Every 15 minutes": {
             "main": [
-                [
-                    { "node": "Query Restart Rate", "type": "main", "index": 0 }
-                ]
+                [{ "node": "Query Restart Rate", "type": "main", "index": 0 }]
             ]
         },
         "Query Restart Rate": {
             "main": [
                 [
-                    { "node": "Any excessive restarts?", "type": "main", "index": 0 }
+                    {
+                        "node": "Any excessive restarts?",
+                        "type": "main",
+                        "index": 0
+                    }
                 ]
             ]
         },
         "Any excessive restarts?": {
             "main": [
-                [
-                    { "node": "Format Alert", "type": "main", "index": 0 }
-                ],
+                [{ "node": "Format Alert", "type": "main", "index": 0 }],
                 []
             ]
         },
         "Format Alert": {
-            "main": [
-                [
-                    { "node": "Notify Discord", "type": "main", "index": 0 }
-                ]
-            ]
+            "main": [[{ "node": "Notify Discord", "type": "main", "index": 0 }]]
         }
     },
     "settings": {
