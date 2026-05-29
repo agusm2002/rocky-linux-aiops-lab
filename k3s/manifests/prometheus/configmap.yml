@@ -242,7 +242,7 @@ data:
               # -----------------------------------------------------------------
               - alert: ServiceDown
                 expr: up == 0
-                for: 2m
+                for: 10s
                 labels:
                   severity: critical
                 annotations:
