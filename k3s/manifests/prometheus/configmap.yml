@@ -145,7 +145,7 @@ data:
               # -----------------------------------------------------------------
               - alert: PodCrashLooping
                 expr: |
-                  rate(kube_pod_container_status_restarts_total{namespace="aiops"}[5m]) > 0
+                  changes(kube_pod_container_status_restarts_total{namespace="aiops"}[5m]) > 0
                 for: 2m
                 labels:
                   severity: critical
